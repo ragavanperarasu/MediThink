@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MediThink">
+  <defs>
+    <linearGradient id="mtPage" x1="0.08" y1="0.02" x2="0.92" y2="0.98">
+      <stop offset="0" stop-color="#12b6fd"/>
+      <stop offset="0.45" stop-color="#2f7cf7"/>
+      <stop offset="1" stop-color="#4c4bec"/>
+    </linearGradient>
+    <linearGradient id="mtFold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cfe2ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The report: a page with its top-right corner turned down. -->
+  <path d="M18 4H43L60 21V46A14 14 0 0 1 46 60H18A14 14 0 0 1 4 46V18A14 14 0 0 1 18 4Z" fill="url(#mtPage)"/>
+
+  <!-- The turned corner, with the crease shadow beneath it. -->
+  <path d="M42 5.5V16.5A6 6 0 0 0 48 22.5H59Z" fill="#1c3fa8" opacity="0.35"/>
+  <path d="M43 4V15A6 6 0 0 0 49 21H60Z" fill="url(#mtFold)"/>
+
+  <!-- A pulse trace that spells the M, ending on the point being read. -->
+  <path d="M10.5 39H18.5L24.5 22.5L32 44L39.5 22.5L45.5 39H49.5" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="53.8" cy="39" r="3.5" fill="#ffffff"/>
+</svg>
