@@ -15,6 +15,8 @@ import { fonts } from '../theme';
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const ZOOMS = [1, 1.25, 1.5, 2];
+/** Space around the page, in px — it keeps the page clear of the container's edges. */
+const GAP = 14;
 /** Breathing room around a highlighted box, as a fraction of the page. */
 const PAD = 0.004;
 
@@ -75,13 +77,28 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  // Track the available width, so the page always fits it.
+  /*
+   * Track the available width, so the page always fits it. Two guards stop
+   * the page flickering: the scroller always reserves the scrollbar's space
+   * (scrollbar-gutter), so a scrollbar appearing never narrows the page and
+   * starts a redraw loop; and changes of a pixel or two are ignored.
+   */
   useEffect(() => {
     const element = scrollerRef.current;
     if (!element) return undefined;
-    const observer = new ResizeObserver(([entry]) => setWidth(Math.floor(entry.contentRect.width)));
+    let frame = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const next = Math.floor(entry.contentRect.width);
+        setWidth((current) => (Math.abs(current - next) <= 2 ? current : next));
+      });
+    });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [url]);
 
   // Draw the page.
@@ -100,13 +117,19 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
       const scale = cssWidth / base.width;
       const ratio = Math.min(window.devicePixelRatio || 1, 2.5);
       const viewport = pdfPage.getViewport({ scale: scale * ratio });
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      setSize({ w: cssWidth, h: base.height * scale });
-      renderTask = pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport });
+      // Drawn off screen first, then copied in one step: the page on screen
+      // is never blank while the next drawing is made.
+      const offscreen = document.createElement('canvas');
+      offscreen.width = Math.floor(viewport.width);
+      offscreen.height = Math.floor(viewport.height);
+      renderTask = pdfPage.render({ canvasContext: offscreen.getContext('2d'), viewport });
       await renderTask.promise;
+      const canvas = canvasRef.current;
+      if (cancelled || !canvas) return;
+      canvas.width = offscreen.width;
+      canvas.height = offscreen.height;
+      canvas.getContext('2d').drawImage(offscreen, 0, 0);
+      setSize((current) => (current && current.w === cssWidth && current.h === base.height * scale ? current : { w: cssWidth, h: base.height * scale }));
     })()
       .catch((err) => {
         if (!cancelled && err?.name !== 'RenderingCancelledException') setError(err?.message || 'Could not draw the page.');
@@ -123,8 +146,8 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller || !size || !focus?.box || focusPage !== page) return;
-    const top = focus.box.t * size.h - scroller.clientHeight / 3;
-    const left = focus.box.l * size.w - scroller.clientWidth / 4;
+    const top = focus.box.t * size.h + GAP - scroller.clientHeight / 3;
+    const left = focus.box.l * size.w + GAP - scroller.clientWidth / 4;
     scroller.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: 'smooth' });
   }, [focus, focusPage, size, page]);
 
@@ -208,7 +231,10 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
         </Tooltip>
       </ViewerBar>
 
-      <Box ref={scrollerRef} sx={{ flex: 1, minHeight: 0, overflow: 'auto', bgcolor: '#fff' }}>
+      <Box
+        ref={scrollerRef}
+        sx={{ flex: 1, minHeight: 0, overflow: 'auto', scrollbarGutter: 'stable', bgcolor: 'grey.50', p: `${GAP}px` }}
+      >
         {error ? (
           <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>
         ) : (
@@ -219,6 +245,8 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
               height: size?.h ?? 400,
               mx: 'auto',
               bgcolor: '#fff',
+              // A hairline edge that takes no space, so it cannot change the page's width.
+              boxShadow: '0 0 0 1px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.06)',
             }}
           >
             <Box component="canvas" ref={canvasRef} sx={{ display: 'block', width: '100%', height: '100%' }} />
@@ -277,7 +305,7 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
               </Box>
             )}
 
-            {(rendering || !pdf) && (
+            {(!pdf || (rendering && !size)) && (
               <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
                 <CircularProgress size={24} />
               </Box>
