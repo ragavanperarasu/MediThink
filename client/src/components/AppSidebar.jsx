@@ -1,24 +1,24 @@
 import { useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Avatar, Box, Divider, Drawer, ListItemIcon, Menu, MenuItem, Stack, Typography,
+  Box, Divider, Drawer, ListItemIcon, Menu, MenuItem, Stack, Typography,
 } from '@mui/material';
 import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
-import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
+import { MedicalReportOutlinedIcon } from './icons';
 import NoteAddOutlinedIcon from '@mui/icons-material/NoteAddOutlined';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import SmsOutlinedIcon from '@mui/icons-material/SmsOutlined';
+import PersonOutlineRoundedIcon from '@mui/icons-material/PersonOutlineRounded';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import { useAuth } from '../auth/AuthContext';
 import { MediThinkMark } from '../brand/Logo';
+import { ProfileAvatar, relationLabel } from './profiles';
+import { APP_LAYOUT } from '../lib/layout';
 
 export const SIDEBAR_WIDTH = 236;
 export const SIDEBAR_COLLAPSED_WIDTH = 68;
 /** Radius of the page's inward curve beside the rail; App.jsx uses it too. */
 export const PAGE_CORNER = 20;
-
-/** Where SaatruAI runs — the product that makes the JSON this one reads. */
-const SAATRU_URL = import.meta.env.VITE_SAATRU_URL || 'http://localhost:5173';
 
 /** Everything on the rail is white at varying strength; ink colours vanish on blue. */
 const ON_BLUE = {
@@ -44,84 +44,68 @@ const RAIL_PAPER = {
  */
 const PRIMARY = [
   { label: 'Dashboard', to: '/dashboard', icon: SpaceDashboardOutlinedIcon, match: (p) => p === '/dashboard' },
-  { label: 'Reports', to: '/reports', icon: FolderOpenOutlinedIcon, match: (p) => p.startsWith('/reports') && p !== '/reports/new' },
+  { label: 'Reports', to: '/reports', icon: MedicalReportOutlinedIcon, match: (p) => p.startsWith('/reports') && p !== '/reports/new' },
+  { label: 'Assistant', to: '/ask', icon: SmsOutlinedIcon, match: (p) => p.startsWith('/ask') },
   { label: 'New analysis', to: '/reports/new', icon: NoteAddOutlinedIcon, match: (p) => p === '/reports/new' },
 ];
 
 /**
- * The signed-in navigation, in the SaatruAI pattern: an icon rail on desktop
- * that widens over the page on hover, and a drawer on phones.
+ * The desktop navigation, in the SaatruAI pattern: an icon rail that widens
+ * over the page on hover.
  */
-export default function AppSidebar({ mobileOpen, onClose }) {
+export default function AppSidebar() {
   // Hold the rail open while the account menu is, so its anchor stays put.
   const [held, setHeld] = useState(false);
 
+  // Phones and iPads use the bottom bar (MobileNav.jsx) instead.
   return (
-    <>
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={onClose}
-        ModalProps={{ keepMounted: true }}
-        sx={{
-          display: { xs: 'block', md: 'none' },
-          '& .MuiDrawer-paper': {
-            ...RAIL_PAPER,
-            borderTopRightRadius: PAGE_CORNER,
-            borderBottomRightRadius: PAGE_CORNER,
+    <Drawer
+      variant="permanent"
+      open
+      sx={{
+        display: 'block',
+        [APP_LAYOUT]: { display: 'none' },
+        width: SIDEBAR_COLLAPSED_WIDTH,
+        flexShrink: 0,
+        '& .MuiDrawer-paper': {
+          ...RAIL_PAPER,
+          width: held ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH,
+          overflow: 'visible',
+          transition: 'width 200ms ease',
+          '& .rail-label': {
+            opacity: held ? 1 : 0,
+            transition: 'opacity 150ms ease',
+            whiteSpace: 'nowrap',
           },
-        }}
-      >
-        <SidebarContent onNavigate={onClose} />
-      </Drawer>
-
-      <Drawer
-        variant="permanent"
-        open
-        sx={{
-          display: { xs: 'none', md: 'block' },
-          width: SIDEBAR_COLLAPSED_WIDTH,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            ...RAIL_PAPER,
-            width: held ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH,
-            overflow: 'visible',
-            transition: 'width 200ms ease',
-            '& .rail-label': {
-              opacity: held ? 1 : 0,
-              transition: 'opacity 150ms ease',
-              whiteSpace: 'nowrap',
-            },
-            // Corner pieces that carry the page's inward curve along the
-            // rail's edge as it widens, so it never bulges outward.
-            '&::before, &::after': {
-              content: '""',
-              position: 'absolute',
-              left: '100%',
-              width: PAGE_CORNER,
-              height: PAGE_CORNER,
-              pointerEvents: 'none',
-            },
-            '&::before': {
-              top: 0,
-              background: (t) => `radial-gradient(circle at 100% 100%, transparent ${PAGE_CORNER - 0.5}px, ${t.palette.primary.main} ${PAGE_CORNER}px)`,
-            },
-            '&::after': {
-              bottom: 0,
-              background: (t) => `radial-gradient(circle at 100% 0, transparent ${PAGE_CORNER - 0.5}px, ${t.palette.primary.main} ${PAGE_CORNER}px)`,
-            },
-            '&:hover, &:has(:focus-visible)': {
-              width: SIDEBAR_WIDTH,
-              '& .rail-label': { opacity: 1 },
-            },
+          // Corner pieces that carry the page's inward curve along the
+          // rail's edge as it widens, so it never bulges outward.
+          '&::before, &::after': {
+            content: '""',
+            position: 'absolute',
+            left: '100%',
+            width: PAGE_CORNER,
+            height: PAGE_CORNER,
+            pointerEvents: 'none',
           },
-        }}
-      >
-        <Box sx={{ height: '100%', overflowX: 'hidden', overflowY: 'auto' }}>
-          <SidebarContent onMenuToggle={setHeld} />
-        </Box>
-      </Drawer>
-    </>
+          '&::before': {
+            top: 0,
+            background: (t) => `radial-gradient(circle at 100% 100%, transparent ${PAGE_CORNER - 0.5}px, ${t.palette.primary.main} ${PAGE_CORNER}px)`,
+          },
+          '&::after': {
+            bottom: 0,
+            background: (t) => `radial-gradient(circle at 100% 0, transparent ${PAGE_CORNER - 0.5}px, ${t.palette.primary.main} ${PAGE_CORNER}px)`,
+          },
+          '&:hover, &:has(:focus-visible)': {
+            width: SIDEBAR_WIDTH,
+            '& .rail-label': { opacity: 1 },
+          },
+        },
+      }}
+    >
+      <Box sx={{ height: '100%', overflowX: 'hidden', overflowY: 'auto' }}>
+        <SidebarContent onMenuToggle={setHeld} />
+      </Box>
+    </Drawer>
   );
 }
 
@@ -139,14 +123,6 @@ function SidebarContent({ onNavigate, onMenuToggle }) {
 
       <Box sx={{ flexGrow: 1 }} />
 
-      <Stack spacing={0.25} sx={{ pb: 1 }}>
-        <NavItem
-          label="Open SaatruAI"
-          href={SAATRU_URL}
-          icon={OpenInNewIcon}
-          onNavigate={onNavigate}
-        />
-      </Stack>
 
       <AccountPanel onMenuToggle={onMenuToggle} />
     </Stack>
@@ -219,11 +195,18 @@ function NavItem({ label, to, href, icon: Icon, active, onNavigate }) {
 
 /** The account at the foot of the rail — where sign-out lives. */
 function AccountPanel({ onMenuToggle }) {
-  const { user, signOut } = useAuth();
+  const { user, profile, profiles, chooseProfile, signOut } = useAuth();
   const navigate = useNavigate();
   const [anchor, setAnchorState] = useState(null);
 
-  if (!user) return null;
+  if (!user || !profile) return null;
+
+  const switchTo = async (id) => {
+    setAnchor(null);
+    if (id === profile.id) return;
+    await chooseProfile(id);
+    navigate('/dashboard');
+  };
 
   const setAnchor = (element) => {
     setAnchorState(element);
@@ -260,20 +243,13 @@ function AccountPanel({ onMenuToggle }) {
           '&:hover': { bgcolor: ON_BLUE.hover },
         }}
       >
-        <Avatar
-          sx={{
-            width: 30, height: 30, fontSize: 12.5, fontWeight: 700,
-            bgcolor: ON_BLUE.text, color: 'primary.main',
-          }}
-        >
-          {(user.displayName || user.username).slice(0, 1).toUpperCase()}
-        </Avatar>
+        <ProfileAvatar profile={profile} size={30} sx={{ border: '2px solid #fff' }} />
         <Stack className="rail-label" sx={{ minWidth: 0, flexGrow: 1 }}>
           <Typography sx={{ fontSize: 13.5, fontWeight: 650, lineHeight: 1.3 }} noWrap>
-            {user.displayName}
+            {profile.name}
           </Typography>
           <Typography sx={{ fontSize: 11.5, color: ON_BLUE.soft, lineHeight: 1.3 }} noWrap>
-            @{user.username}
+            {user.email || `@${user.username}`}
           </Typography>
         </Stack>
         <MoreHorizIcon className="rail-label" sx={{ fontSize: 18, color: ON_BLUE.soft, flexShrink: 0 }} />
@@ -290,10 +266,27 @@ function AccountPanel({ onMenuToggle }) {
         <Box sx={{ px: 2, py: 1 }}>
           <Typography variant="subtitle2">{user.displayName}</Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            @{user.username} · {user.role}
+            {user.email || `@${user.username}`}
           </Typography>
         </Box>
         <Divider />
+        <Typography variant="caption" sx={{ px: 2, pt: 1, pb: 0.5, display: 'block', color: 'text.secondary', fontWeight: 600 }}>
+          Switch profile
+        </Typography>
+        {profiles.map((p) => (
+          <MenuItem key={p.id} onClick={() => switchTo(p.id)} selected={p.id === profile.id} sx={{ gap: 1.5, py: 0.9 }}>
+            <ProfileAvatar profile={p} size={26} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{p.name}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{relationLabel(p.relation)}</Typography>
+            </Box>
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem onClick={() => { setAnchor(null); navigate('/profile'); }} sx={{ py: 1.15 }}>
+          <ListItemIcon><PersonOutlineRoundedIcon fontSize="small" /></ListItemIcon>
+          <Typography variant="body2">Manage profiles</Typography>
+        </MenuItem>
         <MenuItem onClick={handleSignOut} sx={{ py: 1.15 }}>
           <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
           <Typography variant="body2">Sign out</Typography>

@@ -1,14 +1,14 @@
-import { Component, Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Component, Suspense, lazy, useEffect, useRef } from 'react';
 import { Link as RouterLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { Alert, Box, Button, CssBaseline, IconButton, Stack } from '@mui/material';
+import { Alert, Box, Button, CssBaseline } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
-import MenuIcon from '@mui/icons-material/Menu';
 import SearchOffRoundedIcon from '@mui/icons-material/SearchOffRounded';
 import { theme } from './theme';
-import { AuthProvider } from './auth/AuthContext';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import RequireAuth, { SessionLoading } from './auth/RequireAuth';
-import Logo from './brand/Logo';
 import AppSidebar, { PAGE_CORNER } from './components/AppSidebar';
+import { BOTTOM_SPACE, MobileBottomNav, MobileTopBar } from './components/MobileNav';
+import { APP_LAYOUT } from './lib/layout';
 import { Card, EmptyState, PageBody } from './components/ui';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -17,6 +17,8 @@ import DashboardPage from './pages/DashboardPage';
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const NewReportPage = lazy(() => import('./pages/NewReportPage'));
 const ReportPage = lazy(() => import('./pages/ReportPage'));
+const AskPage = lazy(() => import('./pages/AskPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 
 export default function App() {
   return (
@@ -25,6 +27,8 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Accounts are created by the first Google sign-in. */}
+          <Route path="/signup" element={<Navigate to="/login" replace />} />
           <Route path="/*" element={<RequireAuth><Shell /></RequireAuth>} />
         </Routes>
       </AuthProvider>
@@ -33,24 +37,30 @@ export default function App() {
 }
 
 /**
- * The signed-in frame: the blue rail, and the page set into it with its left
- * corners rounded — the SaatruAI dashboard layout. On desktop the page
- * scrolls inside its own frame so both rounded corners stay in view.
+ * The signed-in frame. Desktop: the blue rail, and the page set into it with
+ * its left corners rounded; the page scrolls inside its own frame so both
+ * corners stay in view. Phone and iPad: a slim top bar and an app-style bottom bar
+ * (Home · AI · Upload · Profile), with the page scrolling under both.
  */
 function Shell() {
+  // Every page re-mounts when the profile changes, so nothing from the
+  // previous person's reports stays on screen.
+  const { profile } = useAuth();
+  return <ShellFrame key={profile?.id} />;
+}
+
+function ShellFrame() {
   const location = useLocation();
-  const [navOpen, setNavOpen] = useState(false);
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    setNavOpen(false);
     scrollRef.current?.scrollTo({ top: 0 });
     window.scrollTo({ top: 0 });
   }, [location.pathname]);
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: { xs: 'background.default', md: 'primary.main' } }}>
-      <AppSidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'primary.main', [APP_LAYOUT]: { bgcolor: 'background.default' } }}>
+      <AppSidebar />
 
       <Box
         ref={scrollRef}
@@ -58,33 +68,20 @@ function Shell() {
           flex: 1,
           minWidth: 0,
           bgcolor: 'background.default',
-          height: { md: '100vh' },
-          overflowY: { md: 'auto' },
-          borderTopLeftRadius: { md: PAGE_CORNER },
-          borderBottomLeftRadius: { md: PAGE_CORNER },
+          height: '100vh',
+          overflowY: 'auto',
+          borderTopLeftRadius: PAGE_CORNER,
+          borderBottomLeftRadius: PAGE_CORNER,
+          // Phones and iPads: the page scrolls as a whole under the two bars.
+          [APP_LAYOUT]: {
+            height: 'auto',
+            overflowY: 'visible',
+            borderRadius: 0,
+            pb: BOTTOM_SPACE,
+          },
         }}
       >
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{
-            display: { xs: 'flex', md: 'none' },
-            alignItems: 'center',
-            px: 1, py: 0.75,
-            position: 'sticky', top: 0, zIndex: (t) => t.zIndex.appBar,
-            bgcolor: 'rgba(255,255,255,0.9)',
-            backdropFilter: 'blur(12px)',
-            borderBottom: 1,
-            borderColor: 'divider',
-          }}
-        >
-          <IconButton onClick={() => setNavOpen(true)} aria-label="Open navigation" size="small">
-            <MenuIcon />
-          </IconButton>
-          <Box component={RouterLink} to="/dashboard" sx={{ display: 'flex', textDecoration: 'none' }}>
-            <Logo size={24} />
-          </Box>
-        </Stack>
+        <MobileTopBar />
 
         <Box component="main">
           <ErrorBoundary resetKey={location.pathname}>
@@ -92,6 +89,8 @@ function Shell() {
               <Routes>
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="ask" element={<AskPage />} />
+                <Route path="profile" element={<ProfilePage />} />
                 <Route path="reports" element={<ReportsPage />} />
                 <Route path="reports/new" element={<NewReportPage />} />
                 <Route path="reports/:id" element={<ReportPage />} />
@@ -103,6 +102,8 @@ function Shell() {
           </ErrorBoundary>
         </Box>
       </Box>
+
+      <MobileBottomNav />
     </Box>
   );
 }

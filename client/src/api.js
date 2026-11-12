@@ -6,6 +6,8 @@
 
 /** Raised when the server says the session is gone; AuthContext listens. */
 export const UNAUTHORIZED_EVENT = 'medithink:unauthorized';
+/** Raised when the server needs a profile chosen first; AuthContext listens. */
+export const PROFILE_REQUIRED_EVENT = 'medithink:profile-required';
 
 async function asError(response) {
   const body = await response.json().catch(() => ({}));
@@ -22,25 +24,55 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     body: body ? JSON.stringify(body) : undefined,
     signal,
   });
-  if (!response.ok) {
-    if (response.status === 401 && !path.startsWith('/api/auth/')) {
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-    }
-    throw await asError(response);
-  }
+  if (!response.ok) throw await failed(path, response);
   return response.json();
+}
+
+/** The error for a failed response, after telling the app about a lost session or a missing profile. */
+async function failed(path, response) {
+  if (response.status === 401 && !path.startsWith('/api/auth/')) {
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+  if (response.status === 428) window.dispatchEvent(new Event(PROFILE_REQUIRED_EVENT));
+  return asError(response);
 }
 
 /* ── auth ────────────────────────────────────────────────────────────── */
 
-export const login = (username, password) =>
-  request('/api/auth/login', { method: 'POST', body: { username, password } }).then((r) => r.user);
+/*
+ * A session is { user, profile, profiles }: the account, the profile (person)
+ * in use — null until one is chosen when there are several — and all of the
+ * account's profiles.
+ */
 
 export const logout = () => request('/api/auth/logout', { method: 'POST' });
 
-/** The signed-in user, or null. Never throws. */
+/** { googleClientId } — null when "Continue with Google" is not set up. */
+export const fetchAuthConfig = () => request('/api/auth/config').catch(() => ({ googleClientId: null }));
+
+/** Signs in (or up) with the ID token from Google's button. */
+export const googleSignIn = (credential) =>
+  request('/api/auth/google', { method: 'POST', body: { credential } });
+
+/** The session, or an empty one. Never throws. */
 export const fetchMe = () =>
-  request('/api/auth/me').then((r) => r.user).catch(() => null);
+  request('/api/auth/me').catch(() => ({ user: null, profile: null, profiles: [] }));
+
+/* ── profiles ────────────────────────────────────────────────────────── */
+
+/** Each with its reportCount. */
+export const listProfiles = () => request('/api/profiles');
+
+export const createProfile = (fields) =>
+  request('/api/profiles', { method: 'POST', body: fields }).then((r) => r.profile);
+
+export const updateProfile = (id, fields) =>
+  request(`/api/profiles/${id}`, { method: 'PATCH', body: fields }).then((r) => r.profile);
+
+export const selectProfile = (id) =>
+  request(`/api/profiles/${id}/select`, { method: 'POST' }).then((r) => r.profile);
+
+export const deleteProfile = (id) => request(`/api/profiles/${id}`, { method: 'DELETE' });
 
 /* ── reports ─────────────────────────────────────────────────────────── */
 
@@ -62,10 +94,59 @@ export const updateReport = (id, changes) =>
 
 export const reanalyse = (id) => request(`/api/reports/${id}/analyse`, { method: 'POST' });
 
-export const ask = (id, question) =>
-  request(`/api/reports/${id}/ask`, { method: 'POST', body: { question } }).then((r) => r.messages);
+/*
+ * The Assistant. A scope is "all", "type:<kind>" or "doc:<uploadId>:<n>";
+ * each has its own thread per profile.
+ */
+export const fetchThread = (scope, signal) => request(`/api/ask?scope=${encodeURIComponent(scope)}`, { signal });
 
-export const clearThread = (id) => request(`/api/reports/${id}/messages`, { method: 'DELETE' });
+/**
+ * Asks one question; the answer streams in as it is written. `onText` gets
+ * the answer so far after every piece; `language` is the code the answer
+ * is written in; `mode` "voice" asks for a short answer to read aloud.
+ * Resolves with the stored question and
+ * answer once it is complete.
+ */
+export async function ask(scope, question, onText, signal, language = 'en', mode = 'chat') {
+  const path = '/api/ask';
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope, question, language, mode }),
+    signal,
+  });
+  if (!response.ok) throw await failed(path, response);
+
+  // One JSON event per line: delta · done · error.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let answer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end;
+    while ((end = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, end).trim();
+      buffer = buffer.slice(end + 1);
+      if (!line) continue;
+      const event = JSON.parse(line);
+      if (event.type === 'delta') {
+        answer += event.text;
+        onText?.(answer);
+      } else if (event.type === 'done') {
+        return event.messages;
+      } else if (event.type === 'error') {
+        throw new Error(event.error);
+      }
+    }
+  }
+  throw new Error('The answer was cut off. Ask again.');
+}
+
+export const clearThread = (scope) => request(`/api/ask?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' });
 
 export const deleteReport = (id) => request(`/api/reports/${id}`, { method: 'DELETE' });
 
@@ -81,7 +162,8 @@ export const jsonUrl = (id) => `/api/reports/${id}/source.json`;
  */
 export function uploadReport({ json, pdf, title }, onProgress) {
   const form = new FormData();
-  form.append('json', json);
+  // The PDF alone is read by LandingAI ADE on the server; a JSON export is optional.
+  if (json) form.append('json', json);
   form.append('pdf', pdf);
   if (title) form.append('title', title);
 

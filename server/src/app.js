@@ -6,9 +6,13 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { env } from './env.js';
-import { requireAuth } from './auth/session.js';
+import { requireAuth, requireProfile } from './auth/session.js';
 import authRouter from './routes/auth.js';
 import reportsRouter from './routes/reports.js';
+import profilesRouter from './routes/profiles.js';
+import askRouter from './routes/ask.js';
+import ttsRouter from './routes/tts.js';
+import sttRouter from './routes/stt.js';
 import { HttpError } from './lib/http.js';
 
 export function createApp() {
@@ -20,16 +24,21 @@ export function createApp() {
     helmet({
       contentSecurityPolicy: {
         directives: {
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+          // accounts.google.com/gsi: the "Continue with Google" button.
+          scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client'],
+          styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://accounts.google.com/gsi/style'],
           fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-          imgSrc: ["'self'", 'data:', 'blob:'],
+          // lh3.googleusercontent.com: the Google account photo.
+          imgSrc: ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com'],
+          frameSrc: ['https://accounts.google.com/gsi/'],
           // pdf.js renders pages in a worker.
           workerSrc: ["'self'", 'blob:'],
-          connectSrc: ["'self'"],
+          connectSrc: ["'self'", 'https://accounts.google.com/gsi/'],
           upgradeInsecureRequests: null,
         },
       },
+      // Google's sign-in popup must be able to report back to this page.
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     }),
   );
   app.use(express.json({ limit: '1mb' }));
@@ -58,7 +67,12 @@ export function createApp() {
   };
   app.get('/api/health', health);
   app.use('/api/auth', authRouter);
-  app.use('/api/reports', requireAuth, reportsRouter);
+  app.use('/api/profiles', requireAuth, profilesRouter);
+  // Reports are always those of the profile in use.
+  app.use('/api/reports', requireAuth, requireProfile, reportsRouter);
+  app.use('/api/ask', requireAuth, requireProfile, askRouter);
+  app.use('/api/tts', requireAuth, ttsRouter);
+  app.use('/api/stt', requireAuth, sttRouter);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   // Production: the built client, from the same origin as the API.
@@ -73,6 +87,8 @@ export function createApp() {
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
+    // A streamed reply that fails part-way can only be cut off.
+    if (res.headersSent) return next(err);
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request body is not valid JSON.' });
     console.error('[server]', err);

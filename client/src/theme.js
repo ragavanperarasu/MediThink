@@ -53,6 +53,8 @@ export const theme = createTheme({
     grey: ink,
   },
   shape: { borderRadius: 12 },
+  // Flat design: every elevation is drawn without a shadow; edges are 1px borders.
+  shadows: Array(25).fill('none'),
   typography: {
     fontFamily: body,
     h1: { fontFamily: display, fontWeight: 700, fontSize: 'clamp(2.25rem, 5vw, 3.75rem)', lineHeight: 1.08, letterSpacing: '-0.025em' },
@@ -96,10 +98,7 @@ export const theme = createTheme({
         root: { borderRadius: 10, textTransform: 'none', paddingInline: 18, paddingBlock: 9 },
         sizeLarge: { paddingInline: 26, paddingBlock: 13, fontSize: '0.9375rem' },
         sizeSmall: { paddingInline: 12, paddingBlock: 5 },
-        containedPrimary: {
-          boxShadow: '0 1px 2px rgba(47,124,247,0.24), 0 4px 12px rgba(47,124,247,0.22)',
-          '&:hover': { boxShadow: '0 2px 4px rgba(47,124,247,0.28), 0 8px 20px rgba(47,124,247,0.3)' },
-        },
+        containedPrimary: { boxShadow: 'none', '&:hover': { boxShadow: 'none' } },
       },
     },
     MuiChip: {
@@ -144,5 +143,8 @@ export const theme = createTheme({
     MuiAlert: { styleOverrides: { root: { borderRadius: 10, fontSize: '0.875rem' } } },
     MuiLinearProgress: { styleOverrides: { root: { borderRadius: 999, height: 6 } } },
     MuiDialog: { styleOverrides: { paper: { borderRadius: 16 } } },
+    // No shadows anywhere: floating surfaces get a 1px border instead.
+    MuiPopover: { styleOverrides: { paper: { border: `1px solid ${ink[200]}` } } },
+    MuiDrawer: { styleOverrides: { paperAnchorBottom: { borderTop: `1px solid ${ink[200]}` } } },
   },
 });

@@ -1,16 +1,19 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { useAuth } from './AuthContext';
+import { ProfilePicker } from '../components/profiles';
 
-/** Holds while the session is checked, then sends visitors to sign in. */
+/** Holds while the session is checked, sends visitors to sign in, and asks whose reports to open. */
 export default function RequireAuth({ children }) {
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const location = useLocation();
 
   if (loading) return <SessionLoading />;
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
+  // Signed in, but the account has several profiles and none is chosen yet.
+  if (!profile) return <ProfilePicker />;
   return children;
 }
 

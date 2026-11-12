@@ -6,10 +6,13 @@ import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
 import { env } from '../env.js';
 import Report from '../models/Report.js';
+import AdeParse from '../models/AdeParse.js';
+import Conversation from '../models/Conversation.js';
 import { readAdeDocument } from '../lib/ade.js';
-import { answerQuestion, startAnalysis } from '../lib/analyse.js';
+import { startAnalysis } from '../lib/analyse.js';
 import { HttpError, wrap } from '../lib/http.js';
 import { countPages, documentPdfPath } from '../lib/pdf.js';
+import { LANDINGAI_MISSING } from '../lib/landing.js';
 import { isReportType, REPORT_TYPES } from '../lib/reportTypes.js';
 
 const router = Router();
@@ -21,9 +24,12 @@ const reportDir = (id) => path.join(env.STORAGE_DIR, String(id));
 /** Multer reads filenames as latin1; browsers send UTF-8. */
 const fixName = (name) => Buffer.from(String(name ?? ''), 'latin1').toString('utf8');
 
-async function findReport(id, projection) {
+/** Every query is limited to the profile in use; another profile's report answers 404. */
+const own = (req) => ({ account: req.user._id, profile: req.profile._id });
+
+async function findReport(req, id, projection) {
   if (!mongoose.Types.ObjectId.isValid(id)) throw new HttpError(404, 'That report does not exist.');
-  const report = await Report.findById(id, projection).lean();
+  const report = await Report.findOne({ _id: id, ...own(req) }, projection).lean();
   if (!report) throw new HttpError(404, 'That report does not exist.');
   return report;
 }
@@ -36,6 +42,19 @@ function toSummary(report) {
     reportType: report.reportType,
     documentTypes: report.documentTypes?.length ? report.documentTypes : [report.reportType].filter((t) => isReportType(t)),
     documentCount: report.documents?.length || 1,
+    // Each document in the upload, slim — the Reports list shows every one
+    // as its own row.
+    documents: (report.documents ?? []).map((d) => ({
+      n: d.n,
+      title: d.title || '',
+      category: d.category || 'other',
+      date: d.date || '',
+      dateISO: d.dateISO || '',
+      pageCount: d.pages?.length ?? 0,
+      status: d.status || 'ready',
+      valueCount: d.valueCount ?? 0,
+      flaggedCount: d.flaggedCount ?? 0,
+    })),
     status: report.status,
     error: report.error || '',
     patient: report.patient ?? { name: '', age: '', sex: '' },
@@ -145,42 +164,49 @@ router.post(
     const jsonFile = req.files?.json?.[0];
     const pdfFile = req.files?.pdf?.[0];
 
-    if (!jsonFile) throw new HttpError(400, 'Attach the JSON export from SaatruAI.');
-    if (!pdfFile) throw new HttpError(400, 'Attach the annotated PDF from SaatruAI too — it is what each value is shown on.');
-
-    let raw;
-    try {
-      raw = JSON.parse(jsonFile.buffer.toString('utf8'));
-    } catch {
-      throw new HttpError(422, 'That file is not valid JSON. Download it from SaatruAI again with Download → JSON.');
-    }
-
-    const ade = readAdeDocument(raw);
-
+    if (!pdfFile) throw new HttpError(400, 'Attach the report PDF.');
     if (pdfFile.buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
-      throw new HttpError(422, 'The file in the PDF slot is not a PDF.');
+      throw new HttpError(422, 'That file is not a PDF.');
     }
-    // Every box in the JSON is placed by page number, so the PDF must be the
-    // very document the JSON was made from — the same pages, in the same order.
     const pdfPages = await countPages(pdfFile.buffer);
-    if (pdfPages !== ade.pageCount) {
-      throw new HttpError(
-        422,
-        `The PDF has ${pdfPages} page${pdfPages === 1 ? '' : 's'} but the JSON describes ${ade.pageCount}. Upload the annotated PDF and the JSON from the same SaatruAI document.`,
-      );
-    }
+    const pdfName = fixName(pdfFile.originalname);
 
-    const stored = Buffer.byteLength(ade.markdown) + Buffer.byteLength(JSON.stringify(ade.chunks));
-    if (stored > MAX_STORED_BYTES) {
-      throw new HttpError(413, 'This export is too large to analyse as one report. Split the PDF in SaatruAI and upload the parts.');
+    /*
+     * Two ways in:
+     *   PDF alone      → LandingAI ADE reads it in the background (lib/landing.js).
+     *   PDF + JSON     → a SaatruAI export already holds the reading; ADE is skipped.
+     */
+    let ade = null;
+    let jsonName = '';
+    if (jsonFile) {
+      let raw;
+      try {
+        raw = JSON.parse(jsonFile.buffer.toString('utf8'));
+      } catch {
+        throw new HttpError(422, 'That JSON file is not valid JSON.');
+      }
+      ade = readAdeDocument(raw);
+      jsonName = fixName(jsonFile.originalname);
+      // Every box in the JSON is placed by page number, so the PDF must be the
+      // very document the JSON was made from — the same pages, in the same order.
+      if (pdfPages !== ade.pageCount) {
+        throw new HttpError(
+          422,
+          `The PDF has ${pdfPages} page${pdfPages === 1 ? '' : 's'} but the JSON describes ${ade.pageCount}. Upload the PDF and the JSON from the same document.`,
+        );
+      }
+      const stored = Buffer.byteLength(ade.markdown) + Buffer.byteLength(JSON.stringify(ade.chunks));
+      if (stored > MAX_STORED_BYTES) {
+        throw new HttpError(413, 'This export is too large to analyse as one report. Split the PDF and upload the parts.');
+      }
+    } else if (!env.LANDINGAI_API_KEY) {
+      throw new HttpError(503, LANDINGAI_MISSING);
     }
 
     const requestedType = String(req.body?.reportType ?? 'auto');
     const typedTitle = String(req.body?.title ?? '').trim().slice(0, 160);
-    const jsonName = fixName(jsonFile.originalname);
-    const pdfName = fixName(pdfFile.originalname);
     const fileTitle =
-      (ade.filename || pdfName || jsonName)
+      ((ade?.filename) || pdfName || jsonName)
         .replace(/\.(pdf|json)$/i, '')
         .replace(/-annotated$/i, '')
         .replace(/[-_]+/g, ' ')
@@ -191,20 +217,23 @@ router.post(
       titleSource: typedTitle ? 'user' : 'file',
       reportType: isReportType(requestedType) ? requestedType : 'auto',
       status: 'uploaded',
-      markdown: ade.markdown,
-      chunks: ade.chunks,
+      markdown: ade?.markdown ?? '',
+      chunks: ade?.chunks ?? [],
       source: {
         jsonFilename: jsonName,
-        jsonBytes: jsonFile.size,
+        jsonBytes: jsonFile?.size ?? 0,
         pdfFilename: pdfName,
         pdfBytes: pdfFile.size,
         hasPdf: true,
-        pageCount: ade.pageCount,
-        classification: ade.classification,
-        meanConfidence: ade.meanConfidence,
-        reviewCount: ade.reviewCount,
+        pageCount: ade?.pageCount ?? pdfPages,
+        classification: ade?.classification ?? '',
+        meanConfidence: ade?.meanConfidence ?? null,
+        reviewCount: ade?.reviewCount ?? 0,
+        extractor: ade ? 'saatru' : 'landingai',
       },
       createdBy: req.user._id,
+      account: req.user._id,
+      profile: req.profile._id,
     });
 
     // Files first, record second: a record must never point at files that
@@ -212,7 +241,8 @@ router.post(
     const dir = reportDir(report._id);
     await fs.mkdir(dir, { recursive: true });
     try {
-      await fs.writeFile(path.join(dir, 'source.json'), jsonFile.buffer);
+      // With LandingAI, source.json is written once ADE has answered.
+      if (jsonFile) await fs.writeFile(path.join(dir, 'source.json'), jsonFile.buffer);
       await fs.writeFile(path.join(dir, 'source.pdf'), pdfFile.buffer);
       await report.save();
     } catch (err) {
@@ -232,14 +262,14 @@ const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 router.get(
   '/',
   wrap(async (req, res) => {
-    const filter = {};
+    const filter = own(req);
     const q = String(req.query.q ?? '').trim().slice(0, 100);
     const type = String(req.query.type ?? '');
     const limit = Math.min(200, Math.max(1, Number.parseInt(String(req.query.limit ?? '100'), 10) || 100));
 
     if (q) {
       const pattern = new RegExp(escapeRegex(q), 'i');
-      filter.$or = [{ title: pattern }, { 'patient.name': pattern }, { facility: pattern }];
+      filter.$or = [{ title: pattern }, { 'patient.name': pattern }, { facility: pattern }, { 'documents.title': pattern }];
     }
     // An upload matches a kind when any document in it is of that kind.
     if (isReportType(type)) filter.$and = [{ $or: [{ documentTypes: type }, { documentTypes: { $size: 0 }, reportType: type }] }];
@@ -260,12 +290,16 @@ router.get(
     const DAYS = 14;
     const since = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000);
 
+    const mine = own(req);
     const [[totals], byType, recent] = await Promise.all([
       Report.aggregate([
+        { $match: mine },
         {
           $group: {
             _id: null,
             reports: { $sum: 1 },
+            // Reports as the Reports list shows them: each document in an upload.
+            documents: { $sum: { $max: [1, { $size: { $ifNull: ['$documents', []] } }] } },
             ready: { $sum: { $cond: [{ $eq: ['$status', 'ready'] }, 1, 0] } },
             analysing: { $sum: { $cond: [{ $eq: ['$status', 'analysing'] }, 1, 0] } },
             failed: { $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] } },
@@ -278,6 +312,7 @@ router.get(
       ]),
       // Counted by document kind: an upload holding an ECG and a lab report counts once for each.
       Report.aggregate([
+        { $match: mine },
         {
           $project: {
             types: {
@@ -288,7 +323,7 @@ router.get(
         { $unwind: '$types' },
         { $group: { _id: '$types', count: { $sum: 1 } } },
       ]),
-      Report.find({ createdAt: { $gte: since } }, { createdAt: 1 }).lean(),
+      Report.find({ ...mine, createdAt: { $gte: since } }, { createdAt: 1 }).lean(),
     ]);
 
     const counts = new Map();
@@ -300,7 +335,7 @@ router.get(
 
     res.json({
       totals: {
-        reports: 0, ready: 0, analysing: 0, failed: 0, values: 0, flagged: 0, reportsWithFlags: 0, questions: 0,
+        reports: 0, documents: 0, ready: 0, analysing: 0, failed: 0, values: 0, flagged: 0, reportsWithFlags: 0, questions: 0,
         ...(totals ? { ...totals, _id: undefined } : {}),
       },
       byType: Object.fromEntries(['auto', ...REPORT_TYPES].map((t) => [t, byType.find((b) => b._id === t)?.count ?? 0])),
@@ -312,7 +347,7 @@ router.get(
 router.get(
   '/:id',
   wrap(async (req, res) => {
-    res.json({ report: toDetail(await findReport(req.params.id)) });
+    res.json({ report: toDetail(await findReport(req, req.params.id)) });
   }),
 );
 
@@ -320,7 +355,7 @@ router.get(
 router.get(
   '/:id/status',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { status: 1, error: 1, progress: 1 });
+    const report = await findReport(req, req.params.id, { status: 1, error: 1, progress: 1 });
     res.json({ status: report.status, error: report.error || '', progress: report.progress ?? null });
   }),
 );
@@ -328,7 +363,7 @@ router.get(
 router.get(
   '/:id/file.pdf',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { source: 1 });
+    const report = await findReport(req, req.params.id, { source: 1 });
     if (!report.source?.hasPdf) throw new HttpError(404, 'No PDF was uploaded with this report.');
     // The page CSP (object-src 'none') stops the browser's own PDF viewer
     // drawing it when the file is opened in a tab. A PDF is not a page.
@@ -343,7 +378,7 @@ router.get(
 router.get(
   '/:id/documents/:n/file.pdf',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { documents: 1 });
+    const report = await findReport(req, req.params.id, { documents: 1 });
     const n = Number.parseInt(req.params.n, 10);
     const doc = report.documents?.find((d) => d.n === n);
     if (!doc?.hasPdf) throw new HttpError(404, 'That document has no PDF of its own.');
@@ -357,9 +392,12 @@ router.get(
 router.get(
   '/:id/source.json',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { source: 1 });
+    const report = await findReport(req, req.params.id, { source: 1 });
+    const file = path.join(reportDir(report._id), 'source.json');
+    const exists = await fs.access(file).then(() => true, () => false);
+    if (!exists) throw new HttpError(404, 'This PDF has not been read yet, so there is no JSON to download.');
     const name = (report.source?.jsonFilename || 'report.json').replace(/[^\w.\- ]+/g, '_');
-    res.download(path.join(reportDir(report._id), 'source.json'), name);
+    res.download(file, name);
   }),
 );
 
@@ -368,7 +406,7 @@ router.get(
 router.patch(
   '/:id',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { _id: 1 });
+    const report = await findReport(req, req.params.id, { _id: 1 });
     const set = {};
 
     if (req.body?.title !== undefined) {
@@ -382,7 +420,7 @@ router.patch(
     }
 
     await Report.updateOne({ _id: report._id }, { $set: set });
-    res.json({ report: toSummary(await findReport(report._id, LIST_PROJECTION)) });
+    res.json({ report: toSummary(await findReport(req, report._id, LIST_PROJECTION)) });
   }),
 );
 
@@ -398,57 +436,20 @@ router.post(
   '/:id/analyse',
   modelLimiter,
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { _id: 1 });
+    const report = await findReport(req, req.params.id, { _id: 1 });
     const started = await startAnalysis(report._id);
     res.status(202).json({ started, status: 'analysing' });
-  }),
-);
-
-router.post(
-  '/:id/ask',
-  modelLimiter,
-  wrap(async (req, res) => {
-    const question = String(req.body?.question ?? '').trim();
-    if (!question) throw new HttpError(400, 'Type a question first.');
-    if (question.length > 2000) throw new HttpError(400, 'That question is too long — keep it under 2,000 characters.');
-
-    const report = await findReport(req.params.id, { markdown: 1, chunks: 1, messages: 1, documents: 1, comparisons: 1 });
-
-    let answer;
-    try {
-      answer = await answerQuestion(report, question);
-    } catch (err) {
-      throw new HttpError(502, `Could not answer that: ${err?.message || 'the model did not respond'}`);
-    }
-    if (!answer) throw new HttpError(502, 'The model returned an empty answer. Ask again.');
-
-    const askedAt = new Date();
-    const turns = [
-      { role: 'user', content: question, at: askedAt },
-      { role: 'assistant', content: answer, at: new Date() },
-    ];
-
-    // $push rather than save(): a second question sent while this one was
-    // being answered must not be overwritten by a stale copy of the thread.
-    await Report.updateOne({ _id: report._id }, { $push: { messages: { $each: turns } }, $inc: { questionCount: 1 } });
-    res.json({ messages: turns });
-  }),
-);
-
-router.delete(
-  '/:id/messages',
-  wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { _id: 1 });
-    await Report.updateOne({ _id: report._id }, { $set: { messages: [], questionCount: 0 } });
-    res.json({ ok: true });
   }),
 );
 
 router.delete(
   '/:id',
   wrap(async (req, res) => {
-    const report = await findReport(req.params.id, { _id: 1 });
+    const report = await findReport(req, req.params.id, { _id: 1 });
     await Report.deleteOne({ _id: report._id });
+    await AdeParse.deleteMany({ report: report._id });
+    // Its own Assistant threads go with it.
+    await Conversation.deleteMany({ profile: req.profile._id, scope: new RegExp(`^doc:${report._id}:`) });
     await fs.rm(reportDir(report._id), { recursive: true, force: true });
     res.json({ ok: true });
   }),

@@ -7,6 +7,8 @@ import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import { typeInfo } from '../lib/reportTypes';
 import { flagInfo, rangePosition } from '../lib/values';
 import { tokens } from '../theme';
+import { APP_LAYOUT } from '../lib/layout';
+import { BOTTOM_SPACE, TOP_SPACE } from './MobileNav';
 
 /* Small, shared pieces of the interface. */
 
@@ -50,10 +52,10 @@ export function PageBody({ children, maxWidth = 1320 }) {
   );
 }
 
-/** A white card with the product's border and soft shadow. */
+/** A white card with a 1px border — no shadow. */
 export function Card({ children, sx, ...props }) {
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 3.5, boxShadow: tokens.shadow.sm, ...sx }} {...props}>
+    <Paper variant="outlined" sx={{ borderRadius: '10px', ...sx }} {...props}>
       {children}
     </Paper>
   );
@@ -91,17 +93,17 @@ export function IconTile({ icon: Icon, size = 40, color = '#2f7cf7', bg }) {
 
 export function StatCard({ icon, label, value, hint, tone }) {
   return (
-    <Card sx={{ p: 2.5, height: '100%' }}>
-      <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+    <Card sx={{ p: { xs: 1.75, sm: 2.5 }, height: '100%' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1.25, sm: 2 }} sx={{ alignItems: 'flex-start' }}>
         <IconTile icon={icon} color={tone ?? '#2f7cf7'} bg={tone ? `${tone}14` : undefined} />
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{label}</Typography>
           <Typography
-            sx={{ fontFamily: '"Comfortaa", sans-serif', fontWeight: 700, fontSize: 28, lineHeight: 1.2, color: tone ?? 'text.primary' }}
+            sx={{ fontFamily: '"Comfortaa", sans-serif', fontWeight: 700, fontSize: { xs: 24, sm: 28 }, lineHeight: 1.2, color: tone ?? 'text.primary' }}
           >
             {value}
           </Typography>
-          {hint && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{hint}</Typography>}
+          {hint && <Typography variant="caption" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>{hint}</Typography>}
         </Box>
       </Stack>
     </Card>
@@ -198,7 +200,7 @@ export function RangeBar({ value, range, flag, width = 120 }) {
           sx={{
             position: 'absolute', top: 1, width: 12, height: 12, borderRadius: '50%',
             left: `calc(${position.at}% - 6px)`,
-            bgcolor: color, border: '2px solid #fff', boxShadow: '0 1px 3px rgba(15,23,42,0.25)',
+            bgcolor: color, border: '2px solid #fff', outline: '1px solid rgba(15,23,42,0.18)',
           }}
         />
       </Box>
@@ -215,5 +217,30 @@ export function EmptyState({ icon, title, body, action, sx }) {
       {body && <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 420 }}>{body}</Typography>}
       {action && <Box sx={{ pt: 1 }}>{action}</Box>}
     </Stack>
+  );
+}
+
+/**
+ * An empty page's message: a grey icon, a short line and an optional softer
+ * line under it, in the middle of the space between the bars. `offset` is
+ * the height of anything above it on the page (e.g. a search row), so the
+ * message still sits at the centre of what is left.
+ */
+export function CenteredNote({ icon: Icon, children, hint, action, offset = 0 }) {
+  return (
+    <Box
+      sx={{
+        minHeight: `calc(100vh - 96px - ${offset}px)`,
+        [APP_LAYOUT]: { minHeight: `calc(100dvh - ${TOP_SPACE} - ${BOTTOM_SPACE} - 48px - ${offset}px)` },
+        display: 'grid', placeItems: 'center', textAlign: 'center', px: 2,
+      }}
+    >
+      <Stack spacing={1} sx={{ alignItems: 'center', color: 'text.disabled' }}>
+        {Icon && <Icon sx={{ fontSize: 44, color: 'grey.300', mb: 0.5 }} />}
+        <Typography variant="body1" sx={{ color: 'text.secondary', fontWeight: 600 }}>{children}</Typography>
+        {hint && <Typography variant="body2" sx={{ color: 'text.disabled', maxWidth: 280 }}>{hint}</Typography>}
+        {action}
+      </Stack>
+    </Box>
   );
 }

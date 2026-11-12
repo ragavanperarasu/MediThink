@@ -1,7 +1,7 @@
 # How MediThink reads a report
 
-MediThink takes two files from SaatruAI: the **JSON export** and the **annotated
-PDF**. It turns them into separate documents. For each document it produces a
+MediThink takes a **report PDF**. LandingAI ADE reads it into text, tables and
+page boxes, and MediThink turns that into separate documents. For each document it produces a
 plain-language summary and a table of results checked against the page. Where
 there are several reports of one kind, it shows how the results changed. It
 can also answer questions about all of this.
@@ -10,9 +10,8 @@ The work runs in layers. Each layer has one job. Each one's output is checked
 in code before the next layer uses it.
 
 ```
- SaatruAI JSON ─┐
-                ├─► Layer 0  Upload       validate, normalise, store            (no model)
- Annotated PDF ─┘        │
+ Report PDF ──────► Layer 0  Upload + read  store the PDF; LandingAI ADE reads it   (ADE)
+                         │              raw JSON kept in MongoDB + source.json
                          ▼
                     Layer 1  Split        which pages form which document       (1 model call)
                          │                + cut the PDF into one file each
@@ -30,18 +29,19 @@ in code before the next layer uses it.
 
 | Layer | Job | Model used for | Code checks | Details |
 |---|---|---|---|---|
-| 0 · Upload | Accept the two files and store a normalised copy | Nothing | JSON shape, PDF header, page count matches | [layer-0-upload.md](layer-0-upload.md) |
+| 0 · Upload + read | Store the PDF; LandingAI ADE reads it into text, tables and boxes | LandingAI ADE (parsing, not a language model) | PDF header; ADE job status; result shape and size | [layer-0-upload.md](layer-0-upload.md) |
 | 1 · Split | Find the separate documents inside one PDF and order them | Grouping pages and naming each document's kind, title and date | Every page in exactly one document, known kinds only, real dates | [layer-1-split.md](layer-1-split.md) |
 | 2 · Read | Results and summary for each document | Reading values and writing the summary | Flags whitelisted; every value looked up in the text it was cited from | [layer-2-read.md](layer-2-read.md) |
 | 3 · Compare | What went up or down between reports of the same kind | Pairing differently named tests; describing the computed table | Pairs validated; all arithmetic in code; description rejected if it has a number not in the table | [layer-3-compare.md](layer-3-compare.md) |
-| 4 · Ask | Answer questions about the upload | Answering | Answers must cite blocks; computed changes are given, never recalculated | [layer-4-ask.md](layer-4-ask.md) |
+| 4 · Ask | Answer questions about all reports, one kind, or one report | Answering | Answers must cite their source; figures over time are listed by date, never recalculated | [layer-4-ask.md](layer-4-ask.md) |
 
 How the results appear on screen: [screens.md](screens.md).
 
 ## Three rules every layer follows
 
-1. **Only the JSON's text goes to the model.** The PDF is never read for
-   text and is never sent. It is only counted, split and shown.
+1. **Only text goes to the language model.** The PDF goes to LandingAI to be
+   read; after that only the text it returned is sent to the analysis model.
+   The PDF is otherwise only counted, split and shown.
 2. **Every figure comes from the document or from code.** The model may
    read and describe values. It never supplies a value, a reference range or
    any arithmetic of its own.
@@ -91,8 +91,8 @@ be read at all.
 
 ```
 server/uploads/<reportId>/
-  source.json                 the SaatruAI export, as uploaded
-  source.pdf                  the annotated PDF, as uploaded
+  source.pdf                  the report PDF, as uploaded
+  source.json                 LandingAI ADE's full response (also in MongoDB: adeparses)
   documents/document-1.pdf    pages of document 1 (written by Layer 1)
   documents/document-2.pdf    …
 ```
@@ -105,7 +105,7 @@ writes:
 | `chunks` | Layer 0 | The JSON's blocks `C1…Cn`, each with its page, text and box |
 | `documents[]` | Layers 1 and 2 | Each document's pages, kind, date, status, summary and values |
 | `comparisons[]` | Layer 3 | One computed table per kind that appears more than once |
-| `messages[]` | Layer 4 | The question-and-answer thread |
+| `messages[]` | — | Unused; Assistant threads are in the `conversations` collection (Layer 4) |
 | `progress` | Every layer | `{ stage, done, total }`, polled by the page while it works |
 
 ## Code map

@@ -1,13 +1,16 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import OpenAI from 'openai';
 import { env } from '../env.js';
 import Report from '../models/Report.js';
-import { bundleForModel, documentForModel, locateValue } from './ade.js';
+import AdeParse from '../models/AdeParse.js';
+import { documentForModel, locateValue, readAdeDocument } from './ade.js';
+import { LandingError, parseWithLandingAI } from './landing.js';
 import { splitPdf } from './pdf.js';
 import {
   buildComparison, checkPairs, comparableGroups, comparisonText, leftovers, narrativeIsFaithful,
 } from './compare.js';
-import { ANALYSIS_PROMPT, CHANGES_PROMPT, MATCH_PROMPT, QA_PROMPT, SUMMARY_PROMPT } from './prompts.js';
+import { ANALYSIS_PROMPT, CHANGES_PROMPT, MATCH_PROMPT, SUMMARY_PROMPT } from './prompts.js';
 import { REPORT_TYPE_CONTEXT, REPORT_TYPE_LABEL } from './reportTypes.js';
 import { cleanSplit, pagesForSplitter, singleDocument, splitterPrompt } from './split.js';
 
@@ -24,7 +27,7 @@ const DOCUMENT_CONCURRENCY = 3;
 const text = (value, max = 400) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
 
 /** One model call. No temperature: the reasoning models reject it. */
-async function complete(messages, { json = false } = {}) {
+export async function complete(messages, { json = false } = {}) {
   if (!openai) throw new Error(NO_KEY);
   const completion = await openai.chat.completions.create(
     {
@@ -35,6 +38,27 @@ async function complete(messages, { json = false } = {}) {
     { timeout: env.ANALYSIS_TIMEOUT_MS },
   );
   return (completion.choices[0]?.message?.content ?? '').trim();
+}
+
+/**
+ * One model call, streamed: `onDelta` gets each piece of the answer as it is
+ * written, so it can be shown while it types. Returns the whole answer.
+ */
+export async function completeStream(messages, onDelta, { signal } = {}) {
+  if (!openai) throw new Error(NO_KEY);
+  const stream = await openai.chat.completions.create(
+    { model: env.ANALYSIS_MODEL, messages, stream: true },
+    { timeout: env.ANALYSIS_TIMEOUT_MS, signal },
+  );
+  let text = '';
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) {
+      text += delta;
+      onDelta(delta);
+    }
+  }
+  return text.trim();
 }
 
 const pageList = (pages) => pages.map((p) => p + 1).join(', ');
@@ -110,7 +134,7 @@ async function splitDocuments(report) {
 async function analyseDocument(report, doc) {
   const chunks = report.chunks.filter((c) => doc.pages.includes(c.page));
   if (!chunks.length) {
-    return { status: 'ready', summary: '### What this report is\n\nThese pages carry no readable text in the SaatruAI export, so there is nothing to summarise.', values: [], valueCount: 0, flaggedCount: 0 };
+    return { status: 'ready', summary: '### In short\n\nThese pages carry no readable text, so there is nothing to summarise.', values: [], valueCount: 0, flaggedCount: 0 };
   }
 
   const document = framedDocument(report, doc, chunks);
@@ -255,17 +279,100 @@ function rollUp(report, docs) {
   return update;
 }
 
+/** A Mongo document stops at 16 MB; the raw ADE JSON is kept below this. */
+const MAX_RAW_BYTES = 15 * 1024 * 1024;
+/** The text and chunks stored on the report itself. */
+const MAX_STORED_BYTES = 12 * 1024 * 1024;
+
+/**
+ * Step 0 for a PDF uploaded on its own: LandingAI ADE reads it. The full
+ * response is kept as it came — in MongoDB (AdeParse) and as source.json
+ * beside the PDF — and the report gets the text and chunks read from it.
+ * Returns the report as it now stands.
+ */
+async function extractWithLandingAI(report, dir) {
+  await Report.updateOne({ _id: report._id }, { $set: { progress: { stage: 'extracting', done: 0, total: 100 } } });
+
+  const pdf = await fs.readFile(path.join(dir, 'source.pdf'));
+  let lastShown = -1;
+  const { jobId, result } = await parseWithLandingAI(pdf, report.source?.pdfFilename, {
+    onProgress: (fraction) => {
+      const done = Math.round(fraction * 100);
+      if (done === lastShown) return;
+      lastShown = done;
+      Report.updateOne({ _id: report._id }, { $set: { 'progress.done': done } }).catch(() => {});
+    },
+  });
+
+  const json = JSON.stringify(result);
+  await fs.writeFile(path.join(dir, 'source.json'), json);
+
+  // Keep the raw response in MongoDB too; drop only the per-cell grounding
+  // map if the whole thing would not fit in one document.
+  let stored = result;
+  let trimmed = false;
+  if (Buffer.byteLength(json) > MAX_RAW_BYTES) {
+    const { grounding: _grounding, ...rest } = result;
+    stored = rest;
+    trimmed = true;
+  }
+  const meta = result.metadata ?? {};
+  await AdeParse.findOneAndUpdate(
+    { report: report._id },
+    {
+      $set: {
+        account: report.account,
+        profile: report.profile,
+        jobId,
+        model: env.LANDINGAI_MODEL,
+        pageCount: Number(meta.page_count) || 0,
+        creditUsage: typeof meta.credit_usage === 'number' ? meta.credit_usage : null,
+        durationMs: typeof meta.duration_ms === 'number' ? meta.duration_ms : null,
+        failedPages: Array.isArray(meta.failed_pages) ? meta.failed_pages : [],
+        trimmed,
+        response: stored,
+      },
+    },
+    { upsert: true },
+  );
+
+  const ade = readAdeDocument(result);
+  if (Buffer.byteLength(ade.markdown) + Buffer.byteLength(JSON.stringify(ade.chunks)) > MAX_STORED_BYTES) {
+    throw new LandingError('This PDF is too large to analyse as one report. Split it and upload the parts.');
+  }
+  const base = (report.source?.pdfFilename || 'report.pdf').replace(/\.pdf$/i, '');
+  const update = {
+    markdown: ade.markdown,
+    chunks: ade.chunks,
+    'source.pageCount': ade.pageCount || report.source?.pageCount || 1,
+    'source.jsonFilename': `${base}.ade.json`,
+    'source.jsonBytes': Buffer.byteLength(json),
+    'source.adeJobId': jobId,
+    'source.adeModel': env.LANDINGAI_MODEL,
+    'progress.done': 100,
+  };
+  await Report.updateOne({ _id: report._id }, { $set: update });
+  console.log(`[ade] ${report._id}: ${ade.chunks.length} chunks over ${ade.pageCount} page(s), ${meta.credit_usage ?? '?'} credits (job ${jobId})`);
+  return Report.findById(report._id).lean();
+}
+
 /**
  * Reads an upload: split it into documents, cut the PDF to match, then read
  * each document on its own. Always ends with the report marked ready or
  * failed — never left "analysing".
  */
 async function runAnalysis(reportId) {
-  const report = await Report.findById(reportId).lean();
+  let report = await Report.findById(reportId).lean();
   if (!report) return;
   const dir = path.join(env.STORAGE_DIR, String(reportId));
 
   try {
+    // A PDF uploaded alone is read by LandingAI first — once. A re-analysis
+    // reuses what was read and is not charged again.
+    if (!report.chunks?.length && !report.markdown) {
+      report = await extractWithLandingAI(report, dir);
+    }
+
     await Report.updateOne({ _id: reportId }, { $set: { progress: { stage: 'splitting', done: 0, total: 0 } } });
     const split = await splitDocuments(report);
 
@@ -335,7 +442,12 @@ async function runAnalysis(reportId) {
     console.log(`[analyse] ${reportId}: ${docs.length} documents, ${update.valueCount} values, ${update.flaggedCount} flagged (${env.ANALYSIS_MODEL})`);
   } catch (err) {
     console.error(`[analyse] ${reportId} failed:`, err);
-    const message = err?.message === NO_KEY ? NO_KEY : `The analysis did not finish: ${err?.message || 'unknown error'}`;
+    const message =
+      err?.message === NO_KEY || err instanceof LandingError
+        ? err.message
+        : err?.status === 422
+          ? err.message
+          : `The analysis did not finish: ${err?.message || 'unknown error'}`;
     await Report.updateOne(
       { _id: reportId },
       { $set: { status: 'failed', error: message.slice(0, 600), 'progress.stage': '' } },
@@ -356,28 +468,4 @@ export async function startAnalysis(reportId) {
   if (!claimed) return false;
   runAnalysis(reportId).catch((err) => console.error('[analyse] unexpected:', err));
   return true;
-}
-
-/** How many earlier turns go back with each question. */
-const MAX_HISTORY = 12;
-
-/** Answers one question about an upload from its own text — every document in it. */
-export async function answerQuestion(report, question) {
-  const history = (report.messages ?? []).slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content }));
-  const several = (report.documents?.length ?? 0) > 1;
-  const framing = several
-    ? `This upload holds ${report.documents.length} separate documents, each opening with an "=== Document N ===" heading. Say which document a figure comes from when it matters.\n\n`
-    : '';
-  // Computed changes go with the question, so "what went up?" is answered
-  // from code's figures rather than the model's own arithmetic.
-  const changes = (report.comparisons ?? []).map((c) => comparisonText(c, labelOf)).join('\n\n');
-  const computed = changes
-    ? `\n\nChanges between reports, computed exactly by MediThink. Use these figures for any question about change; never recalculate them:\n${changes}`
-    : '';
-  return complete([
-    { role: 'system', content: QA_PROMPT },
-    { role: 'system', content: `${framing}Report:\n\n---\n${bundleForModel(report)}\n---${computed}` },
-    ...history,
-    { role: 'user', content: question },
-  ]);
 }

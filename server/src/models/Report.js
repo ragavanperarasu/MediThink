@@ -118,6 +118,11 @@ const ReportSchema = new Schema(
       classification: { type: String, default: '' },
       meanConfidence: { type: Number, default: null },
       reviewCount: { type: Number, default: 0 },
+      // Who turned the PDF into text: LandingAI ADE (from the PDF alone) or a
+      // SaatruAI export uploaded with it.
+      extractor: { type: String, enum: ['landingai', 'saatru'], default: 'saatru' },
+      adeJobId: { type: String, default: '' },
+      adeModel: { type: String, default: '' },
     },
 
     markdown: { type: String, default: '' },
@@ -158,10 +163,15 @@ const ReportSchema = new Schema(
     questionCount: { type: Number, default: 0 },
 
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    // Whose report this is: the account, and the profile (person) within it.
+    // Every read is limited to the profile the session has chosen.
+    account: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    profile: { type: Schema.Types.ObjectId, ref: 'Profile', index: true },
   },
   { timestamps: true },
 );
 
 ReportSchema.index({ createdAt: -1 });
+ReportSchema.index({ profile: 1, createdAt: -1 });
 
 export default mongoose.model('Report', ReportSchema);

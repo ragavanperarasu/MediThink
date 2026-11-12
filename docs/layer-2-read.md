@@ -61,14 +61,33 @@ Rules the model is given:
 
 ## Call 2 · Summary (Markdown)
 
-The summary uses exactly three headings:
-- **What this report is**
-- **What stands out**: results outside their range, with the printed range
-- **Everything else**: the rest, grouped as the report groups it
+Written for someone with no medical training. Headings, in this order;
+any that would be empty is left out:
+- **In short**: the kind of report, its date and the overall picture
+- **Needs attention**: a table of the results outside their printed range —
+  Test · Your result · Normal range · Status (Low, High or Abnormal) — then one
+  short bullet per test on what it measures. Reports without ranges (ECG,
+  echo, imaging) list their abnormal findings as bullets instead
+- **Looks okay**: the in-range results, grouped into a sentence or two
+- **Food ideas**: everyday foods for the few results diet is well known to
+  affect (e.g. low haemoglobin or iron, low vitamin D or B12, high
+  cholesterol, high sugar, high uric acid), and what to have less of for a high
+  value. Never a medicine, supplement, herbal remedy or dose. None for kidney
+  results, potassium, sodium, calcium, liver enzymes, clotting, thyroid, or for
+  ECG, echo, imaging, endoscopy and prescriptions. Not cited, since it is
+  general knowledge, and always ending with a line saying it is not medical
+  advice and to check with the doctor first
+- **Questions for your doctor**: two or three, about what needs attention
 
-Every figure is cited, e.g. `[C83]`. Abbreviations are expanded the first
-time. There is no diagnosis, no treatment and no reassurance the document
-doesn't support.
+Every figure from the report is cited, e.g. `[C83]`. Abbreviations are
+expanded the first time. There is no diagnosis, no treatment and no
+reassurance the document doesn't support. The same food rules let the
+Assistant suggest foods when asked (Layer 4).
+
+On the page, tables scroll sideways inside a rounded frame and a Status cell
+reading Low, High, Normal or Abnormal shows as a coloured tag. Each heading
+has its own colour and icon, and the summary opens
+with two counts: results that need attention and results that are normal.
 
 ## What code checks
 

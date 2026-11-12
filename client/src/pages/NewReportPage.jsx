@@ -1,23 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Alert, Box, Button, Chip, Divider, Grid, LinearProgress, Stack, TextField, Typography,
-} from '@mui/material';
-import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
+import { Alert, Box, Button, ButtonBase, IconButton, LinearProgress, Stack, Typography } from '@mui/material';
+import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
+import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
-import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
-import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
-import CallSplitRoundedIcon from '@mui/icons-material/CallSplitRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import * as api from '../api';
-import FileDrop from '../components/FileDrop';
-import { Card, PageBody, PageHeader } from '../components/ui';
-import { plural } from '../lib/format';
+import { useAuth } from '../auth/AuthContext';
+import { ProfileAvatar, ProfileSwitcherMenu } from '../components/profiles';
+import { PageBody } from '../components/ui';
+import { formatBytes, plural } from '../lib/format';
 import usePageTitle from '../lib/usePageTitle';
-
-const SAATRU_URL = import.meta.env.VITE_SAATRU_URL || 'http://localhost:5173';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -33,76 +29,87 @@ async function countPdfPages(file) {
   }
 }
 
+const isPdf = (file) => file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
+
 /**
- * A quick look inside the export before it is sent, mirroring what the
- * server accepts — so a wrong file is caught here rather than after an upload.
+ * Upload — one PDF, chosen, dropped or pasted. Nothing else on the page but
+ * whose profile it is going to, so a report never lands in the wrong person.
  */
-async function inspectExport(file) {
-  let raw;
-  try {
-    raw = JSON.parse(await file.text());
-  } catch {
-    return { ok: false, text: 'This is not valid JSON.' };
-  }
-  let doc = raw;
-  for (let i = 0; i < 3 && doc && typeof doc === 'object' && !Array.isArray(doc.chunks) && typeof doc.markdown !== 'string'; i += 1) {
-    doc = doc.document ?? doc.result ?? doc.data;
-  }
-  if (!doc || typeof doc !== 'object') return { ok: false, text: 'This JSON is not a SaatruAI export.' };
-  const chunks = Array.isArray(doc.chunks) ? doc.chunks : [];
-  const hasText = (typeof doc.markdown === 'string' && doc.markdown.trim()) || chunks.some((c) => c?.markdown || c?.text);
-  if (!hasText) return { ok: false, text: 'This export has no text in it — if the PDF is a scan, run OCR in SaatruAI first.' };
-
-  const pages = doc.pageCount ?? doc.stats?.pageCount ?? 1;
-  const parts = [plural(chunks.length, 'block'), plural(pages, 'page')];
-  if (doc.classification?.label) parts.push(doc.classification.label.replace(/_/g, ' '));
-  return { ok: true, text: `Looks good — ${parts.join(' · ')}`, filename: doc.filename || '', pages };
-}
-
 export default function NewReportPage() {
-  usePageTitle('New analysis');
+  usePageTitle('Upload');
   const navigate = useNavigate();
-  const [json, setJson] = useState(null);
-  const [jsonCheck, setJsonCheck] = useState(null);
+  const inputRef = useRef(null);
   const [pdf, setPdf] = useState(null);
-  const [pdfPages, setPdfPages] = useState(undefined);
-  const [title, setTitle] = useState('');
+  const [pages, setPages] = useState(undefined);
+  const [over, setOver] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState('');
+  const busy = progress !== null;
+
+  /** Takes a file from any route in, PDFs only. */
+  const take = useCallback((file) => {
+    if (!file) return;
+    if (!isPdf(file)) {
+      setError(`"${file.name || 'That file'}" is not a PDF. Only PDF files can be uploaded.`);
+      return;
+    }
+    setError('');
+    setPdf(file);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setJsonCheck(null);
-    if (json) inspectExport(json).then((result) => { if (!cancelled) setJsonCheck(result); });
-    return () => { cancelled = true; };
-  }, [json]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setPdfPages(undefined);
-    if (pdf) countPdfPages(pdf).then((count) => { if (!cancelled) setPdfPages(count); });
+    setPages(undefined);
+    if (pdf) {
+      countPdfPages(pdf).then((count) => {
+        if (cancelled) return;
+        setPages(count);
+        if (count === null) setError('This PDF could not be opened. It may be damaged or password-protected.');
+      });
+    }
     return () => { cancelled = true; };
   }, [pdf]);
 
-  // The boxes in the JSON are placed by page, so the PDF must have the same pages.
-  const pdfCheck = !pdf || pdfPages === undefined
-    ? null
-    : pdfPages === null
-      ? { ok: false, tone: 'error', text: 'This PDF could not be opened.' }
-      : jsonCheck?.ok && pdfPages !== jsonCheck.pages
-        ? { ok: false, tone: 'error', text: `${plural(pdfPages, 'page')}, but the JSON describes ${jsonCheck.pages}. Use the annotated PDF from the same SaatruAI document.` }
-        : { ok: true, tone: 'success', text: `${plural(pdfPages, 'page')}${jsonCheck?.ok ? ' — matches the JSON' : ''}` };
+  // ⌘V / Ctrl+V anywhere on the page pastes a copied PDF file.
+  useEffect(() => {
+    const onPaste = (event) => {
+      if (busy) return;
+      const file = [...(event.clipboardData?.files ?? [])][0];
+      if (file) {
+        event.preventDefault();
+        take(file);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [take, busy]);
 
-  const busy = progress !== null;
-  const canSubmit = json && jsonCheck?.ok && pdf && pdfCheck?.ok && !busy;
+  /** The Paste button: reads a PDF from the clipboard where the browser allows it. */
+  const pasteFromClipboard = async () => {
+    setError('');
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((t) => t === 'application/pdf');
+        if (type) {
+          const blob = await item.getType(type);
+          take(new File([blob], 'pasted.pdf', { type }));
+          return;
+        }
+      }
+      setError('There is no PDF on the clipboard. Copy a PDF file first.');
+    } catch {
+      // Most browsers only hand over a copied file through a paste event.
+      setError('Your browser did not share the clipboard. Copy the PDF file, then press ⌘V (Mac) or Ctrl+V here.');
+    }
+  };
 
-  const submit = async (event) => {
-    event.preventDefault();
-    if (!canSubmit) return;
+  const submit = async () => {
+    if (!pdf || !pages || busy) return;
     setError('');
     setProgress(0);
     try {
-      const report = await api.uploadReport({ json, pdf, title: title.trim() }, setProgress);
+      const report = await api.uploadReport({ pdf }, setProgress);
       navigate(`/reports/${report.id}`);
     } catch (err) {
       setError(err.message);
@@ -110,183 +117,133 @@ export default function NewReportPage() {
     }
   };
 
-  // SaatruAI names it "<name>-annotated.pdf"; anything else may be a different report.
-  const baseName = (name) => name.toLowerCase().replace(/\.pdf$/, '').replace(/-annotated$/, '');
-  const pdfMismatch = pdf && jsonCheck?.filename && baseName(pdf.name) !== baseName(jsonCheck.filename);
-  const pdfStatus = pdfCheck && !pdfCheck.ok
-    ? pdfCheck
-    : pdfMismatch
-      ? { tone: 'warning', text: `The export was made from "${jsonCheck.filename}" — make sure this is the same report.` }
-      : pdfCheck;
-
   return (
-    <PageBody maxWidth={1180}>
-      <PageHeader
-        eyebrow="New analysis"
-        title="Analyse a report"
-        subtitle="Bring the JSON and the annotated PDF from SaatruAI. One PDF can hold several reports — MediThink splits it into separate documents and reads each one on its own."
-      />
+    <PageBody maxWidth={640}>
+      <Stack spacing={2.5}>
+        <UploadingFor />
 
-      <Grid container spacing={2.5}>
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card component="form" onSubmit={submit} sx={{ p: { xs: 2.5, sm: 3.5 } }}>
-            <Stack spacing={3}>
-              <Step number={1} title="The SaatruAI export" caption="Required — this is what MediThink reads.">
-                <FileDrop
-                  icon={DataObjectRoundedIcon}
-                  title="JSON export"
-                  hint="Drop the .json here, or click to choose"
-                  accept=".json,application/json"
-                  extensions={['.json']}
-                  file={json}
-                  onFile={setJson}
-                  disabled={busy}
-                  badge={<Chip size="small" label="Required" sx={{ bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main' }} />}
-                  status={jsonCheck ? { tone: jsonCheck.ok ? 'success' : 'error', text: jsonCheck.text } : null}
-                />
-              </Step>
+        {!pdf ? (
+          <Box
+            onDragOver={(event) => { event.preventDefault(); setOver(true); }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setOver(false);
+              take(event.dataTransfer.files?.[0]);
+            }}
+            sx={{
+              border: '1px dashed',
+              borderColor: over ? 'primary.main' : '#cbd5e1',
+              bgcolor: over ? 'rgba(47,124,247,0.05)' : '#fff',
+              borderRadius: '14px',
+              px: 3, py: { xs: 5, sm: 6 },
+              textAlign: 'center',
+              transition: 'background-color 150ms, border-color 150ms',
+            }}
+          >
+            <Box sx={{ width: 64, height: 64, mx: 'auto', borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main' }}>
+              <CloudUploadOutlinedIcon sx={{ fontSize: 32 }} />
+            </Box>
+            <Typography variant="h6" sx={{ mt: 2 }}>Upload a report PDF</Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>PDF files only</Typography>
 
-              <Step number={2} title="The annotated PDF" caption="Required — SaatruAI → Download → Annotated PDF. It is split per document and each value is shown on it.">
-                <FileDrop
-                  icon={PictureAsPdfOutlinedIcon}
-                  title="Report PDF"
-                  hint="Drop the .pdf here, or click to choose"
-                  accept=".pdf,application/pdf"
-                  extensions={['.pdf']}
-                  file={pdf}
-                  onFile={setPdf}
-                  disabled={busy}
-                  badge={<Chip size="small" label="Required" sx={{ bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main' }} />}
-                  status={pdfStatus ? { tone: pdfStatus.tone, text: pdfStatus.text } : null}
-                />
-              </Step>
-
-              <Step number={3} title="Title" caption="Optional — filled in from the documents if you leave it.">
-                <TextField
-                  label="Title"
-                  placeholder="Detected from the documents"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  disabled={busy}
-                  fullWidth
-                  slotProps={{ htmlInput: { maxLength: 160 }, inputLabel: { shrink: true } }}
-                />
-              </Step>
-
-              {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
-
-              <Divider />
-
-              <Stack direction={{ xs: 'column-reverse', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
-                <Box sx={{ flex: 1 }}>
-                  {busy ? (
-                    <Stack spacing={0.75}>
-                      <LinearProgress variant={progress < 1 ? 'determinate' : 'indeterminate'} value={progress * 100} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        {progress < 1 ? `Uploading… ${Math.round(progress * 100)}%` : 'Starting the analysis…'}
-                      </Typography>
-                    </Stack>
-                  ) : (
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      The JSON text is sent to the analysis model — first to split it into documents, then to read each one. The PDF is never sent.
-                    </Typography>
-                  )}
-                </Box>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  size="large"
-                  disabled={!canSubmit}
-                  startIcon={<AutoAwesomeRoundedIcon />}
-                >
-                  Analyse report
-                </Button>
-              </Stack>
-            </Stack>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Stack spacing={2.5}>
-            <Card sx={{ p: 2.75 }}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                <LightbulbOutlinedIcon sx={{ fontSize: 19, color: 'warning.main' }} />
-                <Typography variant="h6">Which file does what?</Typography>
-              </Stack>
-              <FileRole
-                icon={DataObjectRoundedIcon}
-                title="JSON — what is read"
-                body="SaatruAI has already turned the PDF into text, tables and reading order, with a box for every block. Reading that is faster and more accurate than reading the PDF again, and the boxes are what let each value be traced."
-              />
-              <FileRole
-                icon={PictureAsPdfOutlinedIcon}
-                title="Annotated PDF — what is shown"
-                body="Not read and never sent to the model. Its pages must match the JSON. It is cut into one PDF per document and drawn beside the results, so a click on any value highlights the exact line on the page."
-              />
-              <FileRole
-                icon={CallSplitRoundedIcon}
-                title="One PDF, several reports"
-                body="An echo, an ECG, a prescription and a lab report scanned together are found and read separately. Reports of the same kind are put in date order."
-              />
-            </Card>
-
-            <Card sx={{ p: 2.75, background: 'linear-gradient(120deg, #12b6fd0f, #4c4bec0f)' }}>
-              <Typography variant="h6" sx={{ mb: 1 }}>Getting the JSON</Typography>
-              <Box component="ol" sx={{ pl: 2.5, my: 0, '& li': { mb: 0.75, fontSize: 14, color: 'text.secondary' } }}>
-                <li>Open SaatruAI and upload the report PDF.</li>
-                <li>When it is parsed, open <b>Download</b>.</li>
-                <li>Download <b>JSON</b> and <b>Annotated PDF</b>, and drop both here.</li>
-              </Box>
-              <Button
-                href={SAATRU_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="small"
-                endIcon={<OpenInNewRoundedIcon />}
-                sx={{ mt: 1.5 }}
-              >
-                Open SaatruAI
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} sx={{ justifyContent: 'center', mt: 3 }}>
+              <Button variant="contained" size="large" startIcon={<PictureAsPdfOutlinedIcon />} onClick={() => inputRef.current?.click()}>
+                Choose PDF
               </Button>
-            </Card>
-          </Stack>
-        </Grid>
-      </Grid>
+              <Button variant="outlined" size="large" startIcon={<ContentPasteRoundedIcon />} onClick={pasteFromClipboard} sx={{ bgcolor: '#fff' }}>
+                Paste
+              </Button>
+            </Stack>
+            {/* Dropping and ⌘V need a mouse and keyboard; touch screens skip the hint. */}
+            <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 2, '@media (hover: none)': { display: 'none' } }}>
+              or drop it here · ⌘V / Ctrl+V pastes a copied PDF
+            </Typography>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              hidden
+              onChange={(event) => {
+                take(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+          </Box>
+        ) : (
+          <Box sx={{ border: '1px solid #e2e8f0', borderRadius: '14px', bgcolor: '#fff', p: 2 }}>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+              <Box sx={{ width: 44, height: 44, borderRadius: '10px', flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: 'rgba(220,38,38,0.08)', color: '#dc2626' }}>
+                <PictureAsPdfOutlinedIcon />
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 650 }} noWrap>{pdf.name}</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  {[pages ? plural(pages, 'page') : pages === undefined ? 'Checking…' : null, formatBytes(pdf.size)].filter(Boolean).join(' · ')}
+                </Typography>
+              </Box>
+              {!busy && (
+                <IconButton aria-label="Remove this PDF" onClick={() => { setPdf(null); setError(''); }}>
+                  <CloseRoundedIcon />
+                </IconButton>
+              )}
+            </Stack>
+
+            {busy ? (
+              <Stack spacing={0.75} sx={{ mt: 2 }}>
+                <LinearProgress variant={progress < 1 ? 'determinate' : 'indeterminate'} value={progress * 100} />
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  {progress < 1 ? `Uploading… ${Math.round(progress * 100)}%` : 'Starting…'}
+                </Typography>
+              </Stack>
+            ) : (
+              <Button variant="contained" size="large" fullWidth onClick={submit} disabled={!pages} sx={{ mt: 2 }}>
+                Analyse
+              </Button>
+            )}
+          </Box>
+        )}
+
+        {error && <Alert severity="error" onClose={() => setError('')}>{error}</Alert>}
+      </Stack>
     </PageBody>
   );
 }
 
-function Step({ number, title, caption, children }) {
+/** "Uploading for — Ragavan ⇄": whose reports this goes into. Tap to switch. */
+function UploadingFor() {
+  const { profile } = useAuth();
+  const [anchor, setAnchor] = useState(null);
+  if (!profile) return null;
   return (
-    <Box>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1.5 }}>
-        <Box
-          sx={{
-            width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-            display: 'grid', placeItems: 'center',
-            background: 'linear-gradient(120deg, #12b6fd, #4c4bec)', color: '#fff',
-            fontSize: 13, fontWeight: 700,
-          }}
-        >
-          {number}
+    <>
+      <ButtonBase
+        onClick={(event) => setAnchor(event.currentTarget)}
+        aria-label={`Uploading for ${profile.name}. Switch profile`}
+        aria-haspopup="menu"
+        sx={{
+          width: '100%', gap: 1.5, justifyContent: 'flex-start', textAlign: 'left',
+          px: 1.75, py: 1.25,
+          bgcolor: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px',
+          '&:hover': { borderColor: '#cbd5e1' },
+        }}
+      >
+        <ProfileAvatar profile={profile} size={40} />
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.3 }}>Uploading for</Typography>
+          <Typography sx={{ fontWeight: 650, fontSize: 16, lineHeight: 1.35 }} noWrap>{profile.name}</Typography>
         </Box>
-        <Box>
-          <Typography variant="subtitle1" sx={{ lineHeight: 1.3 }}>{title}</Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>{caption}</Typography>
+        <Box aria-hidden sx={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main' }}>
+          <SwapHorizRoundedIcon sx={{ fontSize: 20 }} />
         </Box>
-      </Stack>
-      {children}
-    </Box>
-  );
-}
-
-function FileRole({ icon: Icon, title, body }) {
-  return (
-    <Stack direction="row" spacing={1.5} sx={{ mb: 1.75 }}>
-      <Icon sx={{ fontSize: 20, color: 'primary.main', mt: 0.25 }} />
-      <Box>
-        <Typography variant="subtitle2">{title}</Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>{body}</Typography>
-      </Box>
-    </Stack>
+      </ButtonBase>
+      <ProfileSwitcherMenu
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        goHome={false}
+      />
+    </>
   );
 }

@@ -246,7 +246,7 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
               mx: 'auto',
               bgcolor: '#fff',
               // A hairline edge that takes no space, so it cannot change the page's width.
-              boxShadow: '0 0 0 1px rgba(15,23,42,0.08), 0 1px 4px rgba(15,23,42,0.06)',
+              outline: '1px solid #e2e8f0',
             }}
           >
             <Box component="canvas" ref={canvasRef} sx={{ display: 'block', width: '100%', height: '100%' }} />
@@ -283,8 +283,9 @@ export default function SourceViewer({ url, pages = null, focus, markers = [], o
                   pointerEvents: 'none',
                   animation: 'mtPulse 1.4s ease-out 1',
                   '@keyframes mtPulse': {
-                    '0%': { boxShadow: '0 0 0 0 rgba(47,124,247,0.55)' },
-                    '100%': { boxShadow: '0 0 0 14px rgba(47,124,247,0)' },
+                    // An outline that grows and fades — the "it's here" flash, without a shadow.
+                    '0%': { outline: '2px solid rgba(47,124,247,0.6)', outlineOffset: '0px' },
+                    '100%': { outline: '2px solid rgba(47,124,247,0)', outlineOffset: '12px' },
                   },
                 }}
               >

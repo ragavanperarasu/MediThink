@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { env } from './env.js';
 import { connectDb } from './db.js';
-import { seedAdmin } from './auth/seed.js';
+import { migrateProfiles, seedAdmin } from './auth/seed.js';
 import { createApp } from './app.js';
 import Report from './models/Report.js';
 
@@ -9,6 +9,7 @@ async function main() {
   await fs.mkdir(env.STORAGE_DIR, { recursive: true });
   await connectDb();
   await seedAdmin();
+  await migrateProfiles();
 
   // An analysis running when the server last stopped will never finish.
   const { modifiedCount } = await Report.updateMany(

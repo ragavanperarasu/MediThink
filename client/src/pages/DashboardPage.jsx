@@ -1,26 +1,28 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Alert, Box, Button, Grid, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, ButtonBase, Grid, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
+import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
-import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import * as api from '../api';
 import { useAuth } from '../auth/AuthContext';
-import ReportsTable from '../components/ReportsTable';
-import { Card, CardHeader, EmptyState, IconTile, PageBody, PageHeader, StatCard } from '../components/ui';
+import ReportsTable, { reportRows } from '../components/ReportsTable';
+import { ProfileAvatar, ProfileSwitcherMenu } from '../components/profiles';
+import { Card, CardHeader, EmptyState, IconTile, PageBody, StatCard } from '../components/ui';
 import { greeting, plural } from '../lib/format';
 import { REPORT_TYPES, TYPE_IDS } from '../lib/reportTypes';
 import usePageTitle from '../lib/usePageTitle';
+import { APP_LAYOUT } from '../lib/layout';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard');
-  const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [recent, setRecent] = useState(null);
   const [error, setError] = useState('');
@@ -57,20 +59,24 @@ export default function DashboardPage() {
 
   return (
     <PageBody>
-      <PageHeader
-        eyebrow={new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
-        title={`${greeting()}, ${user?.displayName?.split(' ')[0] || 'there'}`}
-        subtitle="Here is what MediThink has read so far."
-        actions={
-          <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />}>
-            New analysis
-          </Button>
-        }
-      />
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={2}
+        sx={{ alignItems: { xs: 'flex-start', sm: 'flex-end' }, justifyContent: 'space-between', mb: 3.5 }}
+      >
+        <Box sx={{ minWidth: 0, width: { xs: '100%', sm: 'auto' } }}>
+          <ProfileGreeting />
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.25 }}>Here is what MediThink has read so far.</Typography>
+        </Box>
+        {/* Phones have the Upload tab in the bottom bar. */}
+        <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />} sx={{ flexShrink: 0, [APP_LAYOUT]: { display: 'none' } }}>
+          New analysis
+        </Button>
+      </Stack>
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <Grid container spacing={2.5} sx={{ mb: 2.5 }}>
+      <Grid container spacing={{ xs: 1.5, sm: 2.5 }} sx={{ mb: 2.5 }}>
         {[
           {
             icon: DescriptionOutlinedIcon,
@@ -99,9 +105,9 @@ export default function DashboardPage() {
             tone: '#4c4bec',
           },
         ].map((card) => (
-          <Grid key={card.label} size={{ xs: 12, sm: 6, lg: 3 }}>
+          <Grid key={card.label} size={{ xs: 6, lg: 3 }}>
             {loading ? (
-              <Skeleton variant="rounded" height={104} sx={{ borderRadius: 3.5 }} />
+              <Skeleton variant="rounded" height={104} sx={{ borderRadius: '10px' }} />
             ) : (
               <StatCard {...card} value={(card.value ?? 0).toLocaleString()} />
             )}
@@ -131,7 +137,7 @@ export default function DashboardPage() {
               <EmptyState
                 icon={DescriptionOutlinedIcon}
                 title="No reports yet"
-                body="Upload the JSON that SaatruAI produced for a medical report, and MediThink will read it."
+                body="Upload a report PDF and MediThink will read it, flag what is out of range, and explain it."
                 action={
                   <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />}>
                     Analyse your first report
@@ -139,7 +145,7 @@ export default function DashboardPage() {
                 }
               />
             ) : (
-              <ReportsTable reports={recent} dense />
+              <ReportsTable rows={reportRows(recent).slice(0, 6)} dense />
             )}
           </Card>
         </Grid>
@@ -162,8 +168,58 @@ export default function DashboardPage() {
         </Grid>
       </Grid>
 
-      <HowItWorks />
+      <Box sx={{ display: { xs: 'none', sm: 'block' } }}><HowItWorks /></Box>
     </PageBody>
+  );
+}
+
+/**
+ * A small card: the profile's photo or initial, "Good evening" and its name —
+ * whose reports these are — with a switch button. Tap it to change profile.
+ */
+function ProfileGreeting() {
+  const { profile } = useAuth();
+  const [anchor, setAnchor] = useState(null);
+  if (!profile) return null;
+  return (
+    <>
+      {/* A card: whose reports these are, with a switch button. */}
+      <ButtonBase
+        onClick={(event) => setAnchor(event.currentTarget)}
+        aria-label={`Showing ${profile.name}'s reports. Switch profile`}
+        aria-haspopup="menu"
+        sx={{
+          width: { xs: '100%', sm: 400 },
+          gap: 1.75, justifyContent: 'flex-start', textAlign: 'left',
+          px: 1.75, py: 1.5,
+          bgcolor: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px',
+          '&:hover': { borderColor: '#cbd5e1' },
+        }}
+      >
+        <ProfileAvatar profile={profile} size={44} />
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.3 }}>{greeting()}</Typography>
+          {/* First name only — the full name is on the Profile page. */}
+          <Typography component="h1" sx={{ fontWeight: 650, fontSize: 17, lineHeight: 1.35 }} noWrap>{profile.name.trim().split(/\s+/)[0]}</Typography>
+        </Box>
+        <Box
+          aria-hidden
+          sx={{
+            width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
+            display: 'grid', placeItems: 'center',
+            bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main',
+          }}
+        >
+          <SwapHorizRoundedIcon sx={{ fontSize: 20 }} />
+        </Box>
+      </ButtonBase>
+      <ProfileSwitcherMenu
+        anchorEl={anchor}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+      />
+    </>
   );
 }
 
@@ -232,14 +288,14 @@ function TypeMix({ byType, total }) {
 function HowItWorks() {
   const steps = [
     {
-      icon: DataObjectRoundedIcon,
-      title: 'Extract in SaatruAI',
-      body: 'Parse the report PDF in SaatruAI, then Download → JSON. That file carries the text, tables and where each sits on the page.',
+      icon: PictureAsPdfOutlinedIcon,
+      title: 'Upload the PDF',
+      body: 'Add a report PDF — a scan is fine. LandingAI reads every page into text and tables, each with its place on the page.',
     },
     {
       icon: FactCheckOutlinedIcon,
-      title: 'Upload to MediThink',
-      body: 'Drop in the JSON and the annotated PDF. One PDF holding several reports is split into separate documents, each read and checked on its own.',
+      title: 'Split and checked',
+      body: 'One PDF holding several reports is split into separate documents, each read and checked on its own.',
     },
     {
       icon: InsightsOutlinedIcon,

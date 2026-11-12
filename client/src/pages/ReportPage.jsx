@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Alert, Box, Breadcrumbs, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
-  Grid, IconButton, LinearProgress, ListItemIcon, Menu, MenuItem, Skeleton, Snackbar, Stack, Tab, Tabs,
-  Link, TextField, Tooltip, Typography, useMediaQuery, useTheme,
+  Alert, Box, Button, ButtonBase, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
+  IconButton, LinearProgress, ListItemIcon, Menu, MenuItem, Skeleton, Snackbar, Stack, Tab, Tabs,
+  TextField, Tooltip, Typography,
 } from '@mui/material';
-import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
-import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded';
-import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -18,15 +16,15 @@ import SearchOffRoundedIcon from '@mui/icons-material/SearchOffRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import * as api from '../api';
-import AskPanel from '../components/AskPanel';
 import EvidenceMarkdown, { CitationContext } from '../components/EvidenceMarkdown';
 import SourceViewer from '../components/SourceViewer';
-import ValuesTable, { ValueCard } from '../components/ValuesTable';
+import { FeatherMessage } from '../components/icons';
+import ValuesTable from '../components/ValuesTable';
 import { ListRow, ListRows, StatePill } from '../components/ListRow';
 import ComparisonView from '../components/ComparisonView';
 import { Card, EmptyState, PageBody } from '../components/ui';
 import { MediThinkMark } from '../brand/Logo';
-import { formatDateTime, plural } from '../lib/format';
+import { plural } from '../lib/format';
 import { typeInfo } from '../lib/reportTypes';
 import { isOutOfRange } from '../lib/values';
 import usePageTitle from '../lib/usePageTitle';
@@ -36,8 +34,6 @@ export default function ReportPage() {
   const { id, n: nParam } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const theme = useTheme();
-  const wide = useMediaQuery(theme.breakpoints.up('lg'));
 
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
@@ -73,7 +69,8 @@ export default function ReportPage() {
   useEffect(() => {
     const carried = location.state?.focus ?? null;
     setFocus(carried);
-    if (!carried) setTab('summary');
+    // A carried citation opens the PDF view on the cited block.
+    setTab(carried ? 'source' : 'summary');
     // Only when the document changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nParam]);
@@ -102,11 +99,6 @@ export default function ReportPage() {
     };
   }, [working, id, load]);
 
-  // The Source tab exists only where the viewer is not already beside the tabs.
-  useEffect(() => {
-    if (wide && tab === 'source') setTab('summary');
-  }, [wide, tab]);
-
   /*
    * An upload holding several documents opens like a folder: the list of
    * documents, each opening on its own page with its own PDF. An upload of
@@ -131,21 +123,21 @@ export default function ReportPage() {
       ref: row.source,
       label: `${row.name}: ${row.value}${row.unit ? ` ${row.unit}` : ''}`,
     });
-    if (!wide) setTab('source');
-  }, [wide]);
+    setTab('source');
+  }, []);
 
   // A citation can point into another document (an answer from Ask spans the
   // upload); that document is opened, with the cited block in view.
   const cite = useCallback((chunk) => {
     const next = { key: `c-${chunk.ref}`, page: chunk.page, box: chunk.box, ref: chunk.ref, label: `Page ${chunk.page + 1}` };
-    if (!wide) setTab('source');
+    setTab('source');
     const owner = documents.find((d) => d.pages.includes(chunk.page));
     if (several && owner && owner.n !== doc?.n) {
       navigate(`/reports/${id}/documents/${owner.n}`, { state: { focus: next } });
     } else {
       setFocus(next);
     }
-  }, [wide, documents, several, doc?.n, navigate, id]);
+  }, [documents, several, doc?.n, navigate, id]);
 
   const citations = useMemo(() => ({ chunks: report?.chunks ?? [], onCite: cite }), [report?.chunks, cite]);
 
@@ -230,7 +222,7 @@ export default function ReportPage() {
       transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       slotProps={{ paper: { sx: { minWidth: 220, mt: 0.5, borderRadius: 2.5 } } }}
     >
-      {inFolder && (
+      {atRoot && (
         <MenuItem onClick={reanalyse} disabled={working}>
           <ListItemIcon><RefreshRoundedIcon fontSize="small" /></ListItemIcon>
           Re-analyse
@@ -269,87 +261,61 @@ export default function ReportPage() {
   );
 
   const actions = (
-    <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
-      {atRoot && !inFolder && (
-        <Button
-          variant="outlined"
-          startIcon={working ? <CircularProgress size={15} /> : <RefreshRoundedIcon />}
-          onClick={reanalyse}
-          disabled={working}
-          sx={{ bgcolor: '#fff' }}
-        >
-          {working ? 'Analysing' : 'Re-analyse'}
-        </Button>
-      )}
+    <>
       <Tooltip title="More">
-        <IconButton
-          onClick={(event) => setMenuAnchor(event.currentTarget)}
-          aria-label="More actions"
-          sx={{ border: 1, borderColor: 'divider', borderRadius: 2.5, bgcolor: '#fff' }}
-        >
+        <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)} aria-label="More actions">
           <MoreVertRoundedIcon />
         </IconButton>
       </Tooltip>
       {menu}
-    </Stack>
+    </>
   );
 
-  const header = inFolder ? (
-    <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: 'flex-start' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="h3" component="h1" sx={{ wordBreak: 'break-word' }}>{report.title}</Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75 }}>
-          {[report.patient?.name, plural(documents.length, 'document'), report.reportDate].filter(Boolean).join(' · ')}
-        </Typography>
-      </Box>
-      {working && (
-        <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', color: 'primary.main', pt: 1.25 }}>
-          <CircularProgress size={14} />
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {progress?.total ? `Reading ${progress.done} of ${progress.total}` : 'Reading'}
-          </Typography>
-        </Stack>
-      )}
-      {actions}
-    </Stack>
-  ) : (
-    <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: 'flex-start' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="h3" component="h1" sx={{ wordBreak: 'break-word' }}>
-          {several ? doc.title || typeInfo(doc.category).label : report.title}
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.75 }}>
-          {[
-            !several && report.patient?.name,
-            typeInfo(doc?.category ?? report.reportType).label,
-            doc?.date || report.reportDate,
-            doc?.facility || report.facility,
-            doc && plural(doc.pages.length, 'page'),
-          ].filter(Boolean).join(' · ')}
-        </Typography>
-      </Box>
-      {several && <DocumentStepper documents={documents} current={doc.n} reportId={report.id} />}
-      {actions}
-    </Stack>
-  );
+  // Back where the person came from; straight to Reports when opened by link.
+  const goBack = () => (location.key !== 'default' ? navigate(-1) : navigate('/reports'));
+
+  const title = inFolder || !several ? report.title : doc.title || typeInfo(doc.category).label;
+  const subline = inFolder
+    ? [plural(documents.length, 'report'), report.reportDate].filter(Boolean).join(' · ')
+    : doc?.date || report.reportDate;
+
+  const ready = !inFolder && doc?.summary;
 
   return (
     <CitationContext.Provider value={citations}>
-      <PageBody maxWidth={inFolder ? 960 : 1480}>
-        <Breadcrumbs separator={<ChevronRightRoundedIcon sx={{ fontSize: 18 }} />} sx={{ mb: 1.5, '& .MuiBreadcrumbs-li': { minWidth: 0 } }}>
-          <Link component={RouterLink} to="/reports" underline="hover" color="text.secondary" variant="body2">Reports</Link>
-          {several && !inFolder && (
-            <Link component={RouterLink} to={folderUrl} underline="hover" color="text.secondary" variant="body2"
-              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <FolderOutlinedIcon sx={{ fontSize: 16 }} />{report.title}
-            </Link>
-          )}
-          <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, maxWidth: 360 }} noWrap>
-            {inFolder || !several ? report.title : doc.title || typeInfo(doc.category).label}
-          </Typography>
-        </Breadcrumbs>
-
-        {header}
+      <PageBody maxWidth={860}>
+        {/* Back, the title with its date, and ⋮ — one row. */}
+        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mb: 2, mx: -1, mt: { xs: -1.5, md: -2 } }}>
+          <IconButton onClick={goBack} aria-label="Back">
+            <ArrowBackRoundedIcon />
+          </IconButton>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              component="h1"
+              sx={{
+                fontFamily: fonts.display, fontWeight: 700, fontSize: { xs: 18, sm: 20 }, lineHeight: 1.3,
+                // A long name wraps to two lines at most.
+                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word',
+              }}
+            >
+              {title}
+            </Typography>
+            {(subline || working) && (
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                {subline && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{subline}</Typography>}
+                {working && (
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', color: 'primary.main' }}>
+                    <CircularProgress size={11} thickness={5} />
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                      {inFolder && progress?.total ? `Reading ${progress.done} of ${progress.total}` : 'Reading'}
+                    </Typography>
+                  </Stack>
+                )}
+              </Stack>
+            )}
+          </Box>
+          {actions}
+        </Stack>
 
         {report.status === 'failed' && (
           <Alert
@@ -358,8 +324,35 @@ export default function ReportPage() {
             action={atRoot && <Button color="inherit" size="small" onClick={reanalyse}>Try again</Button>}
           >
             {report.error || 'The analysis did not finish.'}
-            {documents.some((d) => d.summary) && ' The results below are from the previous analysis.'}
           </Alert>
+        )}
+
+        {ready && (
+          // The view switch, and Assistant — which opens the Assistant tab on this report.
+          <Stack direction="row" spacing={1} sx={{ mb: 2, alignItems: 'center' }}>
+            <ViewSwitch
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'summary', label: 'Summary' },
+                { value: 'values', label: 'Results' },
+                { value: 'source', label: 'PDF' },
+              ]}
+            />
+            <Button
+              variant="contained"
+              startIcon={<FeatherMessage sx={{ fontSize: '18px !important' }} />}
+              onClick={() => navigate(`/ask?report=${report.id}&n=${doc.n}`)}
+              aria-label="Assistant"
+              sx={{
+                height: 44, flexShrink: 0, borderRadius: '10px', px: { xs: 1.75, sm: 2.5 }, whiteSpace: 'nowrap',
+                // Small phones: the icon alone, so the switch keeps its room.
+                '@media (max-width: 379.95px)': { minWidth: 44, px: 0, '& .MuiButton-startIcon': { m: 0 }, '& .mt-label': { display: 'none' } },
+              }}
+            >
+              <span className="mt-label">Assistant</span>
+            </Button>
+          </Stack>
         )}
 
         {inFolder ? (
@@ -373,7 +366,7 @@ export default function ReportPage() {
                   '& .MuiTab-root': { minHeight: 40, minWidth: 0, px: 1.5, textTransform: 'none', fontWeight: 600, fontSize: 14 },
                 }}
               >
-                <Tab value="documents" label={`Documents ${documents.length}`} />
+                <Tab value="documents" label={`Reports ${documents.length}`} />
                 <Tab value="changes" label="Changes over time" />
               </Tabs>
             )}
@@ -401,66 +394,21 @@ export default function ReportPage() {
         ) : !doc?.summary ? (
           report.status !== 'failed' && doc?.status !== 'failed' && <AnalysingCard report={report} progress={progress} />
         ) : (
-          <>
-            {working && <LinearProgress sx={{ mb: 2 }} />}
-            <Grid container spacing={2.5}>
-              <Grid size={{ xs: 12, lg: 7 }}>
-                <Card sx={{ overflow: 'hidden', borderRadius: '10px' }}>
-                  <Tabs
-                    value={tab}
-                    onChange={(_, value) => setTab(value)}
-                    variant="scrollable"
-                    allowScrollButtonsMobile
-                    sx={{
-                      px: 1.5, minHeight: 46, borderBottom: 1, borderColor: 'grey.100',
-                      '& .MuiTab-root': { minHeight: 46, minWidth: 0, px: 1.5, textTransform: 'none', fontWeight: 600, fontSize: 14 },
-                    }}
-                  >
-                    <Tab value="summary" label="Summary" />
-                    <Tab value="values" label={rows.length ? `Results ${rows.length}` : 'Results'} />
-                    <Tab value="ask" label="Ask" />
-                    <Tab value="document" label="Text" />
-                    {!wide && <Tab value="source" label="PDF" />}
-                  </Tabs>
-
-                  {tab === 'summary' && <SummaryTab report={report} doc={doc} rows={rows} focus={focus} onSelect={selectValue} />}
-                  {tab === 'values' && <ValuesTable values={doc.values ?? []} selectedKey={focus?.key} onSelect={selectValue} />}
-                  {tab === 'ask' && (
-                    <Box sx={{ height: { xs: '72vh', lg: 'calc(100vh - 290px)' }, minHeight: 460 }}>
-                      <AskPanel report={report} />
-                    </Box>
-                  )}
-                  {tab === 'document' && <DocumentTab report={report} doc={doc} focus={focus} onCite={cite} />}
-                  {tab === 'source' && !wide && (
-                    <SourceViewer
-                      url={sourceUrl}
-                      pages={sourcePages}
-                      focus={focus}
-                      markers={markers}
-                      chunks={report.chunks}
-                      onSelectMarker={(m) => selectValue(rows.find((r) => r.key === m.key))}
-                      height="74vh"
-                    />
-                  )}
-                </Card>
-              </Grid>
-
-              {wide && (
-                <Grid size={{ lg: 5 }}>
-                  <Card sx={{ position: 'sticky', top: 24, height: 'calc(100vh - 48px)', overflow: 'hidden', borderRadius: '10px' }}>
-                    <SourceViewer
-                      url={sourceUrl}
-                      pages={sourcePages}
-                      focus={focus}
-                      markers={markers}
-                      chunks={report.chunks}
-                      onSelectMarker={(m) => selectValue(rows.find((r) => r.key === m.key))}
-                    />
-                  </Card>
-                </Grid>
-              )}
-            </Grid>
-          </>
+          <Card sx={{ overflow: 'hidden' }}>
+            {tab === 'summary' && <SummaryTab doc={doc} rows={rows} />}
+            {tab === 'values' && <ValuesTable values={doc.values ?? []} selectedKey={focus?.key} onSelect={selectValue} />}
+            {tab === 'source' && (
+              <SourceViewer
+                url={sourceUrl}
+                pages={sourcePages}
+                focus={focus}
+                markers={markers}
+                chunks={report.chunks}
+                onSelectMarker={(m) => selectValue(rows.find((r) => r.key === m.key))}
+                height="74vh"
+              />
+            )}
+          </Card>
         )}
 
         {editing && (
@@ -513,9 +461,20 @@ function DocumentWaitingCard({ doc }) {
 function AnalysingCard({ report, progress }) {
   const blocks = report.chunks?.length ?? 0;
   const documents = report.documents ?? [];
-  const stage = progress?.stage || (documents.length ? 'analysing' : 'splitting');
+  const live = progress ?? report.progress;
+  const stage = live?.stage || (documents.length ? 'analysing' : blocks ? 'splitting' : 'extracting');
+  const extracting = stage === 'extracting';
+  const viaLandingAI = report.source?.extractor === 'landingai';
   const steps = [
-    { text: blocks ? `Reading ${plural(blocks, 'block')} from the SaatruAI JSON` : 'Reading the SaatruAI JSON', done: true },
+    {
+      text: extracting
+        ? `Reading the PDF with LandingAI${live?.done ? ` — ${live.done}%` : ''}`
+        : blocks
+          ? `Read ${plural(blocks, 'block')} of text and tables${viaLandingAI ? ' with LandingAI' : ''}`
+          : 'Reading the PDF',
+      done: !extracting && blocks > 0,
+      active: extracting,
+    },
     {
       text: documents.length
         ? `Split into ${plural(documents.length, 'document')}, ordered by kind and date`
@@ -524,7 +483,7 @@ function AnalysingCard({ report, progress }) {
       active: stage === 'splitting',
     },
     {
-      text: progress?.total
+      text: stage === 'analysing' && progress?.total
         ? `Reading each document — ${progress.done} of ${progress.total} done`
         : 'Reading each document: results, ranges and a summary',
       done: stage === 'comparing',
@@ -539,8 +498,8 @@ function AnalysingCard({ report, progress }) {
           display: 'inline-block',
           animation: 'mtBreath 2.2s ease-in-out infinite',
           '@keyframes mtBreath': {
-            '0%, 100%': { transform: 'scale(1)', filter: 'drop-shadow(0 6px 14px rgba(47,124,247,0.25))' },
-            '50%': { transform: 'scale(1.06)', filter: 'drop-shadow(0 10px 24px rgba(47,124,247,0.4))' },
+            '0%, 100%': { transform: 'scale(1)' },
+            '50%': { transform: 'scale(1.06)' },
           },
         }}
       >
@@ -548,11 +507,11 @@ function AnalysingCard({ report, progress }) {
       </Box>
       <Typography variant="h4" sx={{ mt: 2.5 }}>Reading this report…</Typography>
       <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
-        Usually under a minute or two. You can leave this page — the analysis carries on.
+        Usually a minute or two — a long scan can take longer. You can leave this page; it carries on.
       </Typography>
       <LinearProgress
-        variant={progress?.total ? 'determinate' : 'indeterminate'}
-        value={progress?.total ? (100 * progress.done) / progress.total : 0}
+        variant={live?.total && (extracting || stage === 'analysing') ? 'determinate' : 'indeterminate'}
+        value={live?.total ? (100 * live.done) / live.total : 0}
         sx={{ maxWidth: 380, mx: 'auto', my: 3.5 }}
       />
       <Stack spacing={1.25} sx={{ maxWidth: 440, mx: 'auto', textAlign: 'left' }}>
@@ -646,110 +605,79 @@ function FolderView({ report, documents }) {
   );
 }
 
-function SummaryTab({ report, doc, rows, focus, onSelect }) {
+/**
+ * The summary: a count of what needs attention and what is okay, then the
+ * summary itself — In short · Needs attention · Looks okay · Food ideas ·
+ * Questions for your doctor.
+ */
+function SummaryTab({ doc, rows }) {
   if (!doc) return null;
-  const out = rows.filter((r) => isOutOfRange(r.flag));
+  const out = rows.filter((r) => isOutOfRange(r.flag)).length;
+  const okay = rows.filter((r) => r.flag === 'normal').length;
 
   return (
     <Box sx={{ p: { xs: 2, sm: 3 } }}>
-      {doc.status === 'failed' && <Alert severity="error" sx={{ mb: 2.5 }}>{doc.error || 'This document could not be read.'} Re-analyse to try again.</Alert>}
+      {doc.status === 'failed' && <Alert severity="error" sx={{ mb: 2.5 }}>{doc.error || 'This report could not be read.'}</Alert>}
 
-      {out.length > 0 && (
-        <Box sx={{ mb: 3, border: 1, borderColor: 'rgba(220,38,38,0.2)', borderRadius: '10px', overflow: 'hidden' }}>
-          <Typography variant="caption" sx={{ display: 'block', px: 2, py: 1, fontWeight: 650, color: '#dc2626', bgcolor: 'rgba(220,38,38,0.05)' }}>
-            {out.length} flagged
-          </Typography>
-          {out.map((row) => (
-            <ValueCard key={row.key} row={row} selected={focus?.key === row.key} onSelect={onSelect} />
-          ))}
-        </Box>
+      {rows.length > 0 && (
+        <Stack direction="row" spacing={1} sx={{ mb: 2.5 }}>
+          <CountPill tone="bad" count={out} label={out === 1 ? 'needs attention' : 'need attention'} />
+          <CountPill tone="good" count={okay} label="normal" />
+        </Stack>
       )}
 
       <EvidenceMarkdown content={doc.summary} />
 
-      <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 3, pt: 2, borderTop: 1, borderColor: 'grey.100' }}>
-        Explains the report only — not a diagnosis. Ask the doctor what it means for you.
-        {report.analysedAt && ` · Read ${formatDateTime(report.analysedAt)}`}
+      <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 3 }}>
+        Not a diagnosis. Ask your doctor what it means for you.
       </Typography>
     </Box>
   );
 }
 
-/** Previous / next document, without going back to the folder. */
-function DocumentStepper({ documents, current, reportId }) {
-  const index = documents.findIndex((d) => d.n === current);
-  const prev = documents[index - 1];
-  const next = documents[index + 1];
-  const button = (target, label, Icon) => (
-    <Tooltip title={target ? target.title || typeInfo(target.category).label : ''}>
-      <span>
-        <IconButton
-          size="small"
-          aria-label={label}
-          disabled={!target}
-          component={target ? RouterLink : 'button'}
-          to={target ? `/reports/${reportId}/documents/${target.n}` : undefined}
-        >
-          <Icon fontSize="small" />
-        </IconButton>
-      </span>
-    </Tooltip>
-  );
+/** "2 need attention" in red, "8 normal" in green. */
+function CountPill({ tone, count, label }) {
+  const color = tone === 'bad' ? (count ? '#dc2626' : '#64748b') : '#16a34a';
+  const Icon = tone === 'bad' ? ErrorOutlineRoundedIcon : CheckCircleRoundedIcon;
   return (
-    <Stack direction="row" sx={{ alignItems: 'center', border: 1, borderColor: 'divider', borderRadius: '10px', bgcolor: '#fff', flexShrink: 0 }}>
-      {button(prev, 'Previous document', ChevronLeftRoundedIcon)}
-      <Typography variant="caption" sx={{ fontWeight: 650, color: 'text.secondary', px: 0.5, fontFeatureSettings: '"tnum"' }}>
-        {index + 1} / {documents.length}
-      </Typography>
-      {button(next, 'Next document', ChevronRightRoundedIcon)}
+    <Stack
+      direction="row"
+      spacing={0.75}
+      sx={{ alignItems: 'center', px: 1.25, py: 0.75, borderRadius: '10px', bgcolor: `${color}12`, color, flex: 1, minWidth: 0 }}
+    >
+      <Icon sx={{ fontSize: 18 }} />
+      <Typography sx={{ fontWeight: 700, fontSize: 15, lineHeight: 1 }}>{count}</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }} noWrap>{label}</Typography>
     </Stack>
   );
 }
 
-/** The SaatruAI export block by block — each one clickable to its place on the page. */
-function DocumentTab({ report, doc, focus, onCite }) {
-  const chunks = doc ? report.chunks.filter((c) => doc.pages.includes(c.page)) : report.chunks;
-  if (!chunks?.length) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <EvidenceMarkdown content={report.markdown} dense />
-      </Box>
-    );
-  }
+/** Summary · Results · PDF — a segmented switch, one view at a time. */
+function ViewSwitch({ value, onChange, options }) {
   return (
-    <Stack spacing={0.75} sx={{ p: { xs: 1.5, sm: 2 } }}>
-      {chunks.map((chunk) => {
-        const active = focus?.ref === chunk.ref;
+    <Box role="tablist" sx={{ flex: 1, minWidth: 0, display: 'flex', p: '4px', height: 44, bgcolor: '#eef2f7', borderRadius: '10px' }}>
+      {options.map((option) => {
+        const active = option.value === value;
         return (
-          <Box
-            key={chunk.ref}
-            role="button"
-            tabIndex={0}
-            onClick={() => onCite(chunk)}
-            onKeyDown={(event) => event.key === 'Enter' && onCite(chunk)}
+          <ButtonBase
+            key={option.value}
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(option.value)}
             sx={{
-              p: 1.5, borderRadius: 2.5, border: 1, cursor: 'pointer',
-              borderColor: active ? 'primary.main' : 'transparent',
-              bgcolor: active ? 'rgba(47,124,247,0.05)' : 'transparent',
-              '&:hover': { bgcolor: active ? 'rgba(47,124,247,0.05)' : 'grey.50', borderColor: active ? 'primary.main' : 'grey.200' },
+              flex: 1, minWidth: 0, borderRadius: '7px',
+              fontSize: 14, fontWeight: active ? 650 : 500,
+              color: active ? 'text.primary' : 'text.secondary',
+              bgcolor: active ? '#fff' : 'transparent',
+              border: '1px solid', borderColor: active ? '#e2e8f0' : 'transparent',
+              transition: 'background-color 120ms, color 120ms',
             }}
           >
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="caption" sx={{ fontFamily: fonts.mono, color: 'primary.main', fontWeight: 500 }}>
-                {chunk.ref}
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Page {chunk.page + 1} · {chunk.type.replace(/_/g, ' ')}
-              </Typography>
-              {chunk.confidence !== null && chunk.confidence < 0.75 && (
-                <Chip size="small" label="Low confidence" sx={{ bgcolor: 'rgba(217,119,6,0.1)', color: '#d97706' }} />
-              )}
-            </Stack>
-            <EvidenceMarkdown content={chunk.text} dense />
-          </Box>
+            {option.label}
+          </ButtonBase>
         );
       })}
-    </Stack>
+    </Box>
   );
 }
 
