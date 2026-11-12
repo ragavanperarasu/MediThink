@@ -58,7 +58,10 @@ async function failed(path, response) {
 export const logout = () => request('/api/auth/logout', { method: 'POST' });
 
 /** { googleClientId } — null when "Continue with Google" is not set up. */
-export const fetchAuthConfig = () => request('/api/auth/config').catch(() => ({ googleClientId: null }));
+export const fetchAuthConfig = () => request('/api/auth/config')
+  .then((config) => ({ ...config, reachable: true }))
+  // The server could not be reached (or answered with an error) — not the same as Google not being set up.
+  .catch(() => ({ googleClientId: null, reachable: false }));
 
 /** Signs in (or up) with the ID token from Google's button. */
 export const googleSignIn = (credential) =>

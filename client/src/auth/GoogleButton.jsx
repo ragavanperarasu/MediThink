@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Box, Divider, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Divider, Stack, Typography } from '@mui/material';
 import * as api from '../api';
 import { useAuth } from './AuthContext';
 
@@ -34,6 +34,8 @@ export default function GoogleButton({ onSignedIn, text = 'continue_with', showD
   const holderRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [available, setAvailable] = useState(true);
+  const [unreachable, setUnreachable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
 
   // The callback changes identity each render; keep the latest in a ref.
@@ -42,9 +44,14 @@ export default function GoogleButton({ onSignedIn, text = 'continue_with', showD
 
   useEffect(() => {
     let cancelled = false;
+    setUnreachable(false);
     (async () => {
-      const { googleClientId } = await api.fetchAuthConfig();
+      const { googleClientId, reachable } = await api.fetchAuthConfig();
       if (cancelled) return;
+      if (!reachable) {
+        setUnreachable(true);
+        return;
+      }
       if (!googleClientId) {
         setAvailable(false);
         return;
@@ -83,7 +90,18 @@ export default function GoogleButton({ onSignedIn, text = 'continue_with', showD
       setReady(true);
     })();
     return () => { cancelled = true; };
-  }, [signInWithGoogle, text]);
+  }, [signInWithGoogle, text, attempt]);
+
+  if (unreachable) {
+    return (
+      <Alert
+        severity="error"
+        action={<Button color="inherit" size="small" onClick={() => setAttempt((n) => n + 1)}>Try again</Button>}
+      >
+        Cannot reach the MediThink server{api.API_BASE ? ` at ${api.API_BASE}` : ''}. Check that it is running, then try again.
+      </Alert>
+    );
+  }
 
   if (!available) {
     return showDivider ? null : (
