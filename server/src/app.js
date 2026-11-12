@@ -41,6 +41,25 @@ export function createApp() {
       crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     }),
   );
+  // An app served from another address (client VITE_API_BASE_URL) may call the
+  // API, with its session cookie, only when its address is in CORS_ORIGINS.
+  if (env.CORS_ORIGINS.length) {
+    app.use('/api', (req, res, next) => {
+      const origin = req.get('origin');
+      if (origin && env.CORS_ORIGINS.includes(origin)) {
+        res.set({
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Credentials': 'true',
+          'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Max-Age': '600',
+          Vary: 'Origin',
+        });
+        if (req.method === 'OPTIONS') return res.sendStatus(204);
+      }
+      return next();
+    });
+  }
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 

@@ -6,6 +6,7 @@
  * speech recognition listens instead (see useCloudListening below).
  */
 
+import { CREDENTIALS, apiUrl } from '../api';
 import { sharedAudioContext } from './readAloud';
 
 let config = null;
@@ -13,7 +14,7 @@ let config = null;
 /** Whether the server can turn speech into text (asked once). */
 export function cloudListening() {
   if (!config) {
-    config = fetch('/api/stt', { credentials: 'same-origin' })
+    config = fetch(apiUrl('/api/stt'), { credentials: CREDENTIALS })
       .then((r) => (r.ok ? r.json() : { available: false }))
       .then((c) => Boolean(c.available) && canRecord)
       .catch(() => false);
@@ -110,7 +111,7 @@ export function listenOnce({ language = 'en', onPhase, silenceMs = 1200, waitMs 
     const form = new FormData();
     form.append('audio', new Blob(chunks, { type: recorder.mimeType || type || 'audio/webm' }), 'question');
     form.append('language', language);
-    const response = await fetch('/api/stt', { method: 'POST', credentials: 'same-origin', body: form, signal: controller.signal });
+    const response = await fetch(apiUrl('/api/stt'), { method: 'POST', credentials: CREDENTIALS, body: form, signal: controller.signal });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || 'Could not turn the speech into text.');

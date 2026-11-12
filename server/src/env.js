@@ -44,6 +44,9 @@ export const env = {
   MAX_UPLOAD_BYTES: int(process.env.MAX_UPLOAD_MB, 40) * 1024 * 1024,
   TIMEZONE: process.env.TIMEZONE || 'Asia/Kolkata',
   TRUST_PROXY: int(process.env.TRUST_PROXY, 0),
+  // App addresses allowed to call this API from another address (the client's
+  // VITE_API_BASE_URL pointing here). Comma-separated; empty = same address only.
+  CORS_ORIGINS: (process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean),
   // LandingAI ADE: reads an uploaded PDF into text, tables and boxes.
   LANDINGAI_API_KEY: (process.env.LANDINGAI_API_KEY || '').trim(),
   // https://api.va.landing.ai, or https://api.va.eu-west-1.landing.ai for EU accounts.

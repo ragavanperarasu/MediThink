@@ -1,3 +1,5 @@
+import { CREDENTIALS, apiUrl } from '../api';
+
 /*
  * Copy and Speak for an Assistant answer. Both work from the answer's
  * Markdown turned into plain text. Speak uses the cloud voice (OpenAI,
@@ -117,9 +119,9 @@ function context() {
 export const sharedAudioContext = () => context();
 
 function fetchVoice(text, language, signal) {
-  return fetch('/api/tts', {
+  return fetch(apiUrl('/api/tts'), {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: CREDENTIALS,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, language }),
     signal,

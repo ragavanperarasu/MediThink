@@ -1,8 +1,18 @@
 /*
- * The API client. Same origin in development (Vite proxies /api) and in
+ * The API client. Same origin by default in development (Vite proxies /api) and in
  * production (the server serves this build), so the httpOnly session cookie
  * is all the authentication there is — nothing to store, nothing to attach.
  */
+
+/*
+ * The API's address, from VITE_API_BASE_URL in client/.env. Empty means the
+ * same address as the app (the usual case). When it is another address, the
+ * session cookie has to be sent cross-origin, so requests include credentials.
+ */
+export const API_BASE = String(import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
+export const CREDENTIALS = API_BASE ? 'include' : 'same-origin';
+/** A full API URL: apiUrl('/api/reports') → '<base>/api/reports'. */
+export const apiUrl = (path) => `${API_BASE}${path}`;
 
 /** Raised when the server says the session is gone; AuthContext listens. */
 export const UNAUTHORIZED_EVENT = 'medithink:unauthorized';
@@ -17,9 +27,9 @@ async function asError(response) {
 }
 
 async function request(path, { method = 'GET', body, signal } = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     method,
-    credentials: 'same-origin',
+    credentials: CREDENTIALS,
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
     signal,
@@ -109,9 +119,9 @@ export const fetchThread = (scope, signal) => request(`/api/ask?scope=${encodeUR
  */
 export async function ask(scope, question, onText, signal, language = 'en', mode = 'chat') {
   const path = '/api/ask';
-  const response = await fetch(path, {
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
-    credentials: 'same-origin',
+    credentials: CREDENTIALS,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scope, question, language, mode }),
     signal,
@@ -150,10 +160,10 @@ export const clearThread = (scope) => request(`/api/ask?scope=${encodeURICompone
 
 export const deleteReport = (id) => request(`/api/reports/${id}`, { method: 'DELETE' });
 
-export const pdfUrl = (id) => `/api/reports/${id}/file.pdf`;
+export const pdfUrl = (id) => apiUrl(`/api/reports/${id}/file.pdf`);
 /** One document's own pages, split from the upload. */
-export const documentPdfUrl = (id, n) => `/api/reports/${id}/documents/${n}/file.pdf`;
-export const jsonUrl = (id) => `/api/reports/${id}/source.json`;
+export const documentPdfUrl = (id, n) => apiUrl(`/api/reports/${id}/documents/${n}/file.pdf`);
+export const jsonUrl = (id) => apiUrl(`/api/reports/${id}/source.json`);
 
 /**
  * Uploads the export and its annotated PDF — both required. XHR rather than
@@ -169,7 +179,7 @@ export function uploadReport({ json, pdf, title }, onProgress) {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/reports');
+    xhr.open('POST', apiUrl('/api/reports'));
     xhr.withCredentials = true;
     xhr.responseType = 'json';
     xhr.upload.onprogress = (event) => {
