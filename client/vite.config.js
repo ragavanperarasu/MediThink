@@ -15,7 +15,21 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: { port: 5180, proxy: api },
     preview: { port: 5180, proxy: api },
-    // pdf.js ships modern syntax.
-    build: { target: 'es2022', chunkSizeWarningLimit: 1200 },
+    build: {
+      // pdf.js ships modern syntax.
+      target: 'es2022',
+      chunkSizeWarningLimit: 1200,
+      rolldownOptions: {
+        output: {
+          // pdf.js's worker is an .mjs file. Many servers (nginx before 1.23, for
+          // one) send .mjs as application/octet-stream, and browsers refuse to run
+          // a module script with that type — the PDF then "could not be opened".
+          // Emitting it as .js makes every server send it as JavaScript.
+          assetFileNames: (asset) => (/\.mjs$/.test(asset.names?.[0] ?? asset.name ?? '')
+            ? 'assets/[name]-[hash].js'
+            : 'assets/[name]-[hash][extname]'),
+        },
+      },
+    },
   };
 });
