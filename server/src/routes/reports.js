@@ -10,6 +10,7 @@ import AdeParse from '../models/AdeParse.js';
 import Conversation from '../models/Conversation.js';
 import { readAdeDocument } from '../lib/ade.js';
 import { startAnalysis } from '../lib/analyse.js';
+import { healthCardFor } from '../lib/healthCard.js';
 import { HttpError, wrap } from '../lib/http.js';
 import { countPages, documentPdfPath } from '../lib/pdf.js';
 import { LANDINGAI_MISSING } from '../lib/landing.js';
@@ -341,6 +342,14 @@ router.get(
       byType: Object.fromEntries(['auto', ...REPORT_TYPES].map((t) => [t, byType.find((b) => b._id === t)?.count ?? 0])),
       activity,
     });
+  }),
+);
+
+/** The home page's health card: concerns, allergies, medicines, blood group, results to watch. */
+router.get(
+  '/health-card',
+  wrap(async (req, res) => {
+    res.json(await healthCardFor(req.profile, own(req)));
   }),
 );
 

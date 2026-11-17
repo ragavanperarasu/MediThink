@@ -24,6 +24,13 @@ const ProfileSchema = new Schema(
     // The account holder's own profile — made with the account, and the only
     // one that shows the Google photo. It cannot be deleted.
     primary: { type: Boolean, default: false },
+    // The home page's health card, as last built (lib/healthCard.js), and
+    // the key of the reports it was built from — rebuilt when they change.
+    healthCard: {
+      key: { type: String, default: '' },
+      builtAt: { type: Date, default: null },
+      card: { type: Schema.Types.Mixed, default: null },
+    },
   },
   { timestamps: true },
 );

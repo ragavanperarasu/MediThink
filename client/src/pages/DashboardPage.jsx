@@ -1,39 +1,43 @@
 import { useEffect, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
-import { Alert, Box, Button, ButtonBase, Grid, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Button, ButtonBase, Grid, Stack, Typography } from '@mui/material';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
-import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
-import ForumOutlinedIcon from '@mui/icons-material/ForumOutlined';
-import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import * as api from '../api';
 import { useAuth } from '../auth/AuthContext';
-import ReportsTable, { reportRows } from '../components/ReportsTable';
+import HealthCard from '../components/HealthCard';
 import { ProfileAvatar, ProfileSwitcherMenu } from '../components/profiles';
-import { Card, CardHeader, EmptyState, IconTile, PageBody, StatCard } from '../components/ui';
-import { greeting, plural } from '../lib/format';
-import { REPORT_TYPES, TYPE_IDS } from '../lib/reportTypes';
+import { Card, EmptyState, IconTile, PageBody } from '../components/ui';
+import { greeting } from '../lib/format';
 import usePageTitle from '../lib/usePageTitle';
 import { APP_LAYOUT } from '../lib/layout';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard');
   const [stats, setStats] = useState(null);
-  const [recent, setRecent] = useState(null);
   const [error, setError] = useState('');
+  const [health, setHealth] = useState({ loading: true, data: null });
 
   useEffect(() => {
     const controller = new AbortController();
+    // Built on the server the first time after reports change, which takes a
+    // few seconds — so it loads on its own, without holding up the page.
+    const loadHealth = () =>
+      api.fetchHealthCard(controller.signal)
+        .then((data) => setHealth({ loading: false, data }))
+        .catch((err) => {
+          if (err.name !== 'AbortError') setHealth({ loading: false, data: null });
+        });
+    loadHealth();
+    let wasAnalysing = false;
     const load = () =>
-      Promise.all([api.fetchStats(controller.signal), api.listReports({ limit: 6 }, controller.signal)])
-        .then(([s, r]) => {
+      api.fetchStats(controller.signal)
+        .then((s) => {
           setStats(s);
-          setRecent(r);
           return s;
         })
         .catch((err) => {
@@ -45,7 +49,11 @@ export default function DashboardPage() {
     let timer;
     const poll = async () => {
       const s = await load();
-      if (s?.totals.analysing > 0 && !controller.signal.aborted) timer = setTimeout(poll, 4000);
+      const analysing = s?.totals.analysing > 0;
+      // A report just finished: its findings belong on the health card.
+      if (wasAnalysing && !analysing && !controller.signal.aborted) loadHealth();
+      wasAnalysing = analysing;
+      if (analysing && !controller.signal.aborted) timer = setTimeout(poll, 4000);
     };
     poll();
     return () => {
@@ -55,7 +63,6 @@ export default function DashboardPage() {
   }, []);
 
   const totals = stats?.totals;
-  const loading = !stats && !error;
 
   return (
     <PageBody>
@@ -76,97 +83,23 @@ export default function DashboardPage() {
 
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <Grid container spacing={{ xs: 1.5, sm: 2.5 }} sx={{ mb: 2.5 }}>
-        {[
-          {
-            icon: DescriptionOutlinedIcon,
-            label: 'Reports analysed',
-            value: totals?.ready,
-            hint: totals ? `${plural(totals.reports, 'report')} uploaded` : '',
-          },
-          {
-            icon: ScienceOutlinedIcon,
-            label: 'Results read',
-            value: totals?.values,
-            hint: 'measured values extracted',
-          },
-          {
-            icon: WarningAmberRoundedIcon,
-            label: 'Out of range',
-            value: totals?.flagged,
-            hint: totals ? `across ${plural(totals.reportsWithFlags, 'report')}` : '',
-            tone: '#dc2626',
-          },
-          {
-            icon: ForumOutlinedIcon,
-            label: 'Questions answered',
-            value: totals?.questions,
-            hint: 'with page citations',
-            tone: '#4c4bec',
-          },
-        ].map((card) => (
-          <Grid key={card.label} size={{ xs: 6, lg: 3 }}>
-            {loading ? (
-              <Skeleton variant="rounded" height={104} sx={{ borderRadius: '10px' }} />
-            ) : (
-              <StatCard {...card} value={(card.value ?? 0).toLocaleString()} />
-            )}
-          </Grid>
-        ))}
-      </Grid>
+      <HealthCard data={health.data} loading={health.loading} />
 
-      <Grid container spacing={2.5}>
-        <Grid size={{ xs: 12, lg: 8 }}>
-          <Card sx={{ height: '100%', overflow: 'hidden' }}>
-            <CardHeader
-              title="Recent reports"
-              subtitle="The latest uploads, newest first"
-              action={
-                recent?.length > 0 && (
-                  <Button component={RouterLink} to="/reports" size="small" endIcon={<ArrowForwardRoundedIcon />}>
-                    View all
-                  </Button>
-                )
-              }
-            />
-            {recent === null ? (
-              <Stack spacing={1} sx={{ p: 2.5 }}>
-                {[0, 1, 2, 3].map((i) => <Skeleton key={i} variant="rounded" height={44} />)}
-              </Stack>
-            ) : recent.length === 0 ? (
-              <EmptyState
-                icon={DescriptionOutlinedIcon}
-                title="No reports yet"
-                body="Upload a report PDF and MediThink will read it, flag what is out of range, and explain it."
-                action={
-                  <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />}>
-                    Analyse your first report
-                  </Button>
-                }
-              />
-            ) : (
-              <ReportsTable rows={reportRows(recent).slice(0, 6)} dense />
-            )}
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, lg: 4 }}>
-          <Stack spacing={2.5} sx={{ height: '100%' }}>
-            <Card>
-              <CardHeader title="Last 14 days" subtitle="Reports uploaded per day" />
-              <Box sx={{ px: 2.5, pb: 2.5 }}>
-                {stats ? <ActivityBars activity={stats.activity} /> : <Skeleton variant="rounded" height={96} />}
-              </Box>
-            </Card>
-            <Card sx={{ flex: 1 }}>
-              <CardHeader title="Report mix" subtitle="By kind of report" />
-              <Box sx={{ px: 2.5, pb: 2.5 }}>
-                {stats ? <TypeMix byType={stats.byType} total={totals.reports} /> : <Skeleton variant="rounded" height={140} />}
-              </Box>
-            </Card>
-          </Stack>
-        </Grid>
-      </Grid>
+      {/* Nothing uploaded yet: the one thing to do next. */}
+      {totals?.reports === 0 && (
+        <Card>
+          <EmptyState
+            icon={DescriptionOutlinedIcon}
+            title="No reports yet"
+            body="Upload a report PDF and MediThink will read it, flag what is out of range, and explain it."
+            action={
+              <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />}>
+                Analyse your first report
+              </Button>
+            }
+          />
+        </Card>
+      )}
 
       <Box sx={{ display: { xs: 'none', sm: 'block' } }}><HowItWorks /></Box>
     </PageBody>
@@ -220,68 +153,6 @@ function ProfileGreeting() {
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
       />
     </>
-  );
-}
-
-function ActivityBars({ activity }) {
-  const max = Math.max(1, ...activity.map((d) => d.count));
-  const total = activity.reduce((sum, d) => sum + d.count, 0);
-  return (
-    <Box>
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'flex-end', height: 88 }}>
-        {activity.map((day, index) => {
-          const label = new Date(`${day.date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-          const today = index === activity.length - 1;
-          return (
-            <Tooltip key={day.date} title={`${label}: ${plural(day.count, 'report')}`} arrow>
-              <Box
-                sx={{
-                  flex: 1,
-                  height: `${Math.max(6, (day.count / max) * 100)}%`,
-                  borderRadius: 1.25,
-                  background: day.count ? (today ? 'linear-gradient(180deg, #12b6fd, #4c4bec)' : 'linear-gradient(180deg, #5b9bfa, #2f7cf7)') : undefined,
-                  bgcolor: day.count ? undefined : 'grey.100',
-                  transition: 'opacity 150ms',
-                  '&:hover': { opacity: 0.8 },
-                }}
-              />
-            </Tooltip>
-          );
-        })}
-      </Stack>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', mt: 1 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>2 weeks ago</Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>{plural(total, 'report')}</Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>Today</Typography>
-      </Stack>
-    </Box>
-  );
-}
-
-function TypeMix({ byType, total }) {
-  if (!total) {
-    return <Typography variant="body2" sx={{ color: 'text.secondary' }}>Nothing to show yet.</Typography>;
-  }
-  return (
-    <Stack spacing={1.5}>
-      {TYPE_IDS.map((id) => {
-        const info = REPORT_TYPES[id];
-        const count = byType[id] ?? 0;
-        const Icon = info.icon;
-        return (
-          <Box key={id}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
-              <Icon sx={{ fontSize: 16, color: info.color }} />
-              <Typography variant="body2" sx={{ flex: 1, fontWeight: 500 }}>{info.label}</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 650, fontFeatureSettings: '"tnum"' }}>{count}</Typography>
-            </Stack>
-            <Box sx={{ height: 6, borderRadius: 99, bgcolor: 'grey.100', overflow: 'hidden' }}>
-              <Box sx={{ height: '100%', width: `${(count / total) * 100}%`, bgcolor: info.color, borderRadius: 99, transition: 'width 400ms' }} />
-            </Box>
-          </Box>
-        );
-      })}
-    </Stack>
   );
 }
 

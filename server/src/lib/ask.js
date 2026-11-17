@@ -68,10 +68,37 @@ export async function resolveScope(owner, parsed) {
   };
 }
 
+/** Upper bound on the results sent to the client for drawing charts. */
+const MAX_CHART_RESULTS = 3000;
+
+/**
+ * Every result in the scope, slim, for the charts an answer may ask for. The
+ * client draws charts from these — never from figures in the answer text.
+ * `ref` is the report (D3) across reports; `cite` the block (C12) in one.
+ */
+function chartResults(resolved) {
+  const row = (doc, v, ref) => ({
+    ref,
+    cite: resolved.kind === 'doc' ? v.source || '' : '',
+    date: doc.date || '',
+    dateISO: doc.dateISO || '',
+    name: v.name,
+    section: v.section || '',
+    value: v.value,
+    unit: v.unit || '',
+    range: v.range || '',
+    flag: v.flag || 'unknown',
+  });
+  const rows = resolved.kind === 'doc'
+    ? (resolved.doc.values ?? []).map((v) => row(resolved.doc, v, ''))
+    : resolved.sources.flatMap(({ ref, doc }) => (doc.values ?? []).map((v) => row(doc, v, ref)));
+  return rows.slice(0, MAX_CHART_RESULTS);
+}
+
 /** What the client needs to show the thread and turn citations into links. */
 export function threadPayload(resolved, messages) {
   const flaggedNames = (docs) => [...new Set(docs.flatMap((d) => (d.values ?? []).filter((v) => FLAGGED.has(v.flag)).map((v) => v.name)))].slice(0, 3);
-  const base = { scope: resolved.scope, kind: resolved.kind, label: resolved.label, messages };
+  const base = { scope: resolved.scope, kind: resolved.kind, label: resolved.label, messages, results: chartResults(resolved) };
   if (resolved.kind === 'doc') {
     return {
       ...base,
@@ -123,6 +150,14 @@ function reportsForModel(sources) {
   return out;
 }
 
+/** The results read from one report, by the names a chart must use. */
+function resultsList(doc) {
+  const values = doc.values ?? [];
+  if (!values.length) return '';
+  const lines = values.map((v) => `- ${v.section ? `${v.section} › ` : ''}${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}${v.range ? ` (range ${v.range})` : ''}`);
+  return `\n\nResults read from this report (for charts, use these names):\n${lines.join('\n')}`;
+}
+
 /**
  * What is sent to the model for one question within a scope, with the thread
  * so far. `language` is the code the answer is written in, whatever language
@@ -137,7 +172,7 @@ export function askMessages(resolved, messages, question, language = 'en', { voi
     const kind = REPORT_TYPE_CONTEXT[doc.category] ?? REPORT_TYPE_CONTEXT.other;
     context = [
       { role: 'system', content: QA_PROMPT },
-      { role: 'system', content: `${kind}\n\nReport:\n\n---\n${documentForModel(report, chunks)}\n---` },
+      { role: 'system', content: `${kind}\n\nReport:\n\n---\n${documentForModel(report, chunks)}\n---${resultsList(doc)}` },
     ];
   } else {
     if (!resolved.sources.length) throw new HttpError(404, 'There are no reports to ask about here yet.');
@@ -148,7 +183,7 @@ export function askMessages(resolved, messages, question, language = 'en', { voi
   }
   // Last before the question, so it governs this answer even when earlier ones were in another language.
   const spoken = voice
-    ? [{ role: 'system', content: 'This answer will be spoken aloud in a voice conversation. Reply in two to four short, natural spoken sentences: no tables, headings, bullet lists or other Markdown. Still put the citation tag after each figure. If the question needs more detail, give the key point and say the full answer is in the chat.' }]
+    ? [{ role: 'system', content: 'This answer will be spoken aloud in a voice conversation. Reply in two to four short, natural spoken sentences: no tables, charts, headings, bullet lists or other Markdown. Still put the citation tag after each figure. If the question needs more detail, give the key point and say the full answer is in the chat.' }]
     : [];
   return [...context, ...history, ...spoken, { role: 'system', content: languageInstruction(language) }, { role: 'user', content: question }];
 }

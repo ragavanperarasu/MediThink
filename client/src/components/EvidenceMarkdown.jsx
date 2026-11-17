@@ -11,12 +11,21 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { fonts } from '../theme';
 import { STATUS_WORDS } from '../lib/languages';
+import AnswerChart, { parseChart } from './AnswerCharts';
 
 /**
  * What a citation resolves against. Provided once per report page, so every
  * piece of Markdown on it — summary, answers — links into the same source.
+ * `results` are the values read from the reports, which ```chart blocks in
+ * an Assistant answer are drawn from; without them a chart block shows nothing.
  */
-export const CitationContext = createContext({ chunks: [], onCite: null });
+export const CitationContext = createContext({ chunks: [], onCite: null, results: [] });
+
+/** Whether a <pre> holds a ```chart block. */
+const isChart = (node) => {
+  const cls = node?.children?.[0]?.properties?.className;
+  return Array.isArray(cls) && cls.includes('language-chart');
+};
 
 /*
  * "[C12]" and "[C3, C5]" become links to "#cite-C12" — but not "[C12](…)",
@@ -77,7 +86,7 @@ function StatusCell({ children }) {
 
 /** Markdown with the report's citations turned into page pins. */
 export default function EvidenceMarkdown({ content, dense = false }) {
-  const { chunks, onCite } = useContext(CitationContext);
+  const { chunks, onCite, results = [] } = useContext(CitationContext);
   const byRef = useMemo(() => new Map(chunks.map((chunk) => [chunk.ref, chunk])), [chunks]);
   const source = useMemo(() => linkCitations(String(content ?? '')), [content]);
 
@@ -92,6 +101,20 @@ export default function EvidenceMarkdown({ content, dense = false }) {
         </Box>
       ),
       td: ({ children }) => <td><StatusCell>{children}</StatusCell></td>,
+      // A ```chart block is drawn from the stored results; while it is still
+      // being written (or if it is not valid), nothing shows.
+      pre: ({ node, children }) => (isChart(node) ? <>{children}</> : <pre>{children}</pre>),
+      code({ className, children }) {
+        if (!String(className ?? '').includes('language-chart')) return <code className={className}>{children}</code>;
+        return (
+          <AnswerChart
+            spec={parseChart(textOf(children))}
+            results={results}
+            onCite={onCite}
+            citeFor={(row) => byRef.get(row.ref || row.cite) ?? null}
+          />
+        );
+      },
       a({ href, children }) {
         if (href?.startsWith('#cite-')) {
           const chunk = byRef.get(href.slice(6));
@@ -105,7 +128,7 @@ export default function EvidenceMarkdown({ content, dense = false }) {
         );
       },
     }),
-    [byRef, onCite],
+    [byRef, onCite, results],
   );
 
   return (

@@ -10,6 +10,7 @@ import { CREDENTIALS, apiUrl } from '../api';
 /** Markdown → plain text: no citation tags, no ** or #, a table as one line per row. */
 export function plainText(markdown) {
   return String(markdown ?? '')
+    .replace(/```chart[\s\S]*?(```|$)/g, '') // a chart is seen, not read out
     .replace(/\s*\[(?:[CD]\d{1,5}\s*[,;]?\s*)+\]/g, '') // [C12] [D3]
     .split('\n')
     .filter((line) => !/^\s*\|?\s*:?-{3,}/.test(line)) // table separator rows

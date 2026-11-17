@@ -11,6 +11,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import SearchOffRoundedIcon from '@mui/icons-material/SearchOffRounded';
 import * as api from '../api';
+import ReportStats from '../components/ReportStats';
 import ReportsTable, { groupByType, reportRows } from '../components/ReportsTable';
 import { Card, CenteredNote, PageBody } from '../components/ui';
 import { REPORT_TYPES, TYPE_IDS } from '../lib/reportTypes';
@@ -55,6 +56,11 @@ export default function ReportsPage() {
   }, []);
 
   const rows = useMemo(() => (uploads ? reportRows(uploads, { type, flagged, query }) : null), [uploads, type, flagged, query]);
+  // The filter lists only the kinds this profile has (and the one chosen), not all of them.
+  const kinds = useMemo(() => {
+    const present = new Set(uploads ? reportRows(uploads).map((r) => r.category) : []);
+    return TYPE_IDS.filter((id) => present.has(id) || id === type);
+  }, [uploads, type]);
   const activeFilters = (type ? 1 : 0) + (flagged ? 1 : 0);
   const clearAll = () => { setQuery(''); setType(''); setFlagged(false); };
 
@@ -121,7 +127,7 @@ export default function ReportsPage() {
         <Typography variant="caption" sx={{ px: 2, pt: 0.5, pb: 0.5, display: 'block', color: 'text.secondary', fontWeight: 600 }}>
           Kind of report
         </Typography>
-        {[{ id: '', label: 'All kinds' }, ...TYPE_IDS.map((id) => ({ id, ...REPORT_TYPES[id] }))].map((option) => {
+        {[{ id: '', label: 'All kinds' }, ...kinds.map((id) => ({ id, ...REPORT_TYPES[id] }))].map((option) => {
           const Icon = option.icon;
           return (
             <MenuItem key={option.id || 'all'} selected={type === option.id} onClick={() => { setType(option.id); setFilterAnchor(null); }} sx={{ py: 0.9 }}>
@@ -138,6 +144,8 @@ export default function ReportsPage() {
           </MenuItem>
         )}
       </Menu>
+
+      <ReportStats refresh={uploads} />
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 

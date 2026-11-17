@@ -106,6 +106,7 @@ export default function AskPage() {
       ? thread.chunks ?? []
       : (thread?.sources ?? []).map((source) => ({ ...source, kind: 'report' })),
     onCite: cite,
+    results: thread?.results ?? [],
   }), [thread, cite]);
 
   const frame = {

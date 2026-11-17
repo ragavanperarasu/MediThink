@@ -98,6 +98,9 @@ export const listReports = (params = {}, signal) => {
 
 export const fetchStats = (signal) => request('/api/reports/stats', { signal });
 
+/** The home page's health card, gathered from every report of the profile in use. */
+export const fetchHealthCard = (signal) => request('/api/reports/health-card', { signal });
+
 export const fetchReport = (id, signal) => request(`/api/reports/${id}`, { signal }).then((r) => r.report);
 
 export const fetchStatus = (id, signal) => request(`/api/reports/${id}/status`, { signal });
