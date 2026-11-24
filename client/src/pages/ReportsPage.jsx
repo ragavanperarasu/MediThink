@@ -11,7 +11,6 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import SearchOffRoundedIcon from '@mui/icons-material/SearchOffRounded';
 import * as api from '../api';
-import ReportStats from '../components/ReportStats';
 import ReportsTable, { groupByType, reportRows } from '../components/ReportsTable';
 import { Card, CenteredNote, PageBody } from '../components/ui';
 import { REPORT_TYPES, TYPE_IDS } from '../lib/reportTypes';
@@ -144,8 +143,6 @@ export default function ReportsPage() {
           </MenuItem>
         )}
       </Menu>
-
-      <ReportStats refresh={uploads} />
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 

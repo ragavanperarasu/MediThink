@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import Conversation from '../models/Conversation.js';
 import { completeStream } from '../lib/analyse.js';
-import { askMessages, parseScope, resolveScope, threadPayload } from '../lib/ask.js';
+import { askMessages, liveInstructions, parseScope, resolveScope, threadPayload } from '../lib/ask.js';
 import { languageOf } from '../lib/languages.js';
 import { HttpError, wrap } from '../lib/http.js';
+import { assertLive, offerFrom, startLiveSession } from '../lib/live.js';
 
 /*
  * The Assistant. A thread per scope — all reports, one kind of report, or one
@@ -87,6 +88,47 @@ router.post(
       if (!controller.signal.aborted) send({ type: 'error', error: `Could not answer that: ${err?.message || 'the model did not respond'}. Ask again.` });
     }
     res.end();
+  }),
+);
+
+/** POST /api/ask/live { scope, language, sdp } → { sdp, sessionId } — a GPT-Live voice conversation (lib/live.js). */
+router.post(
+  '/live',
+  modelLimiter,
+  wrap(async (req, res) => {
+    assertLive();
+    const sdp = offerFrom(req.body);
+    const resolved = await resolveScope(own(req), parseScope(req.body?.scope));
+    const instructions = liveInstructions(resolved, languageOf(req.body?.language));
+    res.json(await startLiveSession({ sdp, instructions, userId: req.user._id }));
+  }),
+);
+
+/**
+ * POST /api/ask/live/turns { scope, turns: [{ role, content }] } — what was
+ * said in a voice conversation, as the browser heard it transcribed, added to
+ * the chat thread when the conversation ends.
+ */
+router.post(
+  '/live/turns',
+  wrap(async (req, res) => {
+    const resolved = await resolveScope(own(req), parseScope(req.body?.scope));
+    const turns = (Array.isArray(req.body?.turns) ? req.body.turns : [])
+      .slice(0, 200)
+      .map((t) => ({
+        role: t?.role === 'assistant' || t?.role === 'user' ? t.role : null,
+        content: String(t?.content ?? '').trim().slice(0, 4000),
+        at: new Date(),
+      }))
+      .filter((t) => t.role && t.content);
+    if (turns.length) {
+      await Conversation.updateOne(
+        { profile: req.profile._id, scope: resolved.scope },
+        { $setOnInsert: { account: req.user._id }, $push: { messages: { $each: turns } } },
+        { upsert: true },
+      );
+    }
+    res.json({ messages: turns });
   }),
 );
 

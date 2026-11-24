@@ -7,6 +7,7 @@ import Profile, { MAX_PROFILES, PROFILE_COLORS, RELATIONS, SEXES } from '../mode
 import Report from '../models/Report.js';
 import AdeParse from '../models/AdeParse.js';
 import Conversation from '../models/Conversation.js';
+import CheckIn from '../models/CheckIn.js';
 import { clearProfileCookie, readProfile, setProfileCookie } from '../auth/session.js';
 import { HttpError, wrap } from '../lib/http.js';
 import { properCase } from '../lib/names.js';
@@ -130,6 +131,7 @@ router.delete(
     await Report.deleteMany({ _id: { $in: reports.map((r) => r._id) } });
     await AdeParse.deleteMany({ report: { $in: reports.map((r) => r._id) } });
     await Conversation.deleteMany({ profile: profile._id });
+    await CheckIn.deleteMany({ profile: profile._id });
     await Promise.all(reports.map((r) => fs.rm(path.join(env.STORAGE_DIR, String(r._id)), { recursive: true, force: true })));
     await profile.deleteOne();
 

@@ -162,6 +162,32 @@ export async function ask(scope, question, onText, signal, language = 'en', mode
   throw new Error('The answer was cut off. Ask again.');
 }
 
+/** Starts a GPT-Live voice session: sends the browser's WebRTC offer, gets OpenAI's answer. */
+export const startLive = (scope, language, sdp, signal) =>
+  request('/api/ask/live', { method: 'POST', body: { scope, language, sdp }, signal });
+
+/** Adds what was said in a voice conversation to the chat thread. */
+export const saveLiveTurns = (scope, turns) =>
+  request('/api/ask/live/turns', { method: 'POST', body: { scope, turns } }).then((r) => r.messages);
+
+/* ── daily check-in ──────────────────────────────────────────────────── */
+
+/** { today, recent, live } — today's check-in (or null) and the last two weeks' notes. */
+export const fetchCheckins = (signal) => request('/api/checkins', { signal });
+
+/** Starts today's check-in voice chat: the browser's WebRTC offer in, OpenAI's answer out. */
+export const startCheckinLive = (language, sdp, signal) =>
+  request('/api/checkins/live', { method: 'POST', body: { language, sdp }, signal });
+
+/** Saves what was said; resolves with { checkin } holding today's notes. */
+export const saveCheckin = (language, turns) =>
+  request('/api/checkins', { method: 'POST', body: { language, turns } });
+
+/** The last `days` days of check-ins, gathered into a short note for the doctor. */
+export const fetchDoctorNote = (days = 30, signal) => request(`/api/checkins/doctor-note?days=${days}`, { signal });
+
+export const deleteCheckin = (id) => request(`/api/checkins/${id}`, { method: 'DELETE' });
+
 export const clearThread = (scope) => request(`/api/ask?scope=${encodeURIComponent(scope)}`, { method: 'DELETE' });
 
 export const deleteReport = (id) => request(`/api/reports/${id}`, { method: 'DELETE' });

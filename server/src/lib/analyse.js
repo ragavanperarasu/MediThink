@@ -10,7 +10,7 @@ import { splitPdf } from './pdf.js';
 import {
   buildComparison, checkPairs, comparableGroups, comparisonText, leftovers, narrativeIsFaithful,
 } from './compare.js';
-import { ANALYSIS_PROMPT, CHANGES_PROMPT, MATCH_PROMPT, SUMMARY_PROMPT } from './prompts.js';
+import { ANALYSIS_PROMPT, CHANGES_PROMPT, KNOWLEDGE_PROMPT, MATCH_PROMPT, SUMMARY_PROMPT } from './prompts.js';
 import { REPORT_TYPE_CONTEXT, REPORT_TYPE_LABEL } from './reportTypes.js';
 import { cleanSplit, pagesForSplitter, singleDocument, splitterPrompt } from './split.js';
 
@@ -138,9 +138,14 @@ async function analyseDocument(report, doc) {
   }
 
   const document = framedDocument(report, doc, chunks);
-  const [analysisText, summary] = await Promise.all([
+  const [analysisText, summary, knowledge] = await Promise.all([
     complete([{ role: 'system', content: ANALYSIS_PROMPT }, { role: 'user', content: document }], { json: true }),
     complete([{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: document }]),
+    // The check-in's fact sheet is a nice-to-have: missing, it is made later.
+    complete([{ role: 'system', content: KNOWLEDGE_PROMPT }, { role: 'user', content: document }]).catch((err) => {
+      console.error(`[analyse] ${report._id} document ${doc.n}: knowledge not written:`, err.message);
+      return '';
+    }),
   ]);
   if (!summary) throw new Error('The model returned an empty summary.');
 
@@ -161,6 +166,7 @@ async function analyseDocument(report, doc) {
     status: 'ready',
     error: '',
     summary,
+    knowledge: knowledge.slice(0, 2000),
     values,
     valueCount: values.length,
     flaggedCount: values.filter((v) => OUT_OF_RANGE.has(v.flag)).length,
@@ -170,6 +176,17 @@ async function analyseDocument(report, doc) {
     patient: { name: text(details.patientName, 160), age: text(details.age, 40), sex: text(details.sex, 40) },
     referredBy: text(details.referredBy, 160),
   };
+}
+
+/**
+ * The check-in fact sheet for one document read before fact sheets existed.
+ * `report` needs its chunks and (for older uploads) markdown.
+ */
+export async function documentKnowledge(report, doc) {
+  const chunks = (report.chunks ?? []).filter((c) => doc.pages.includes(c.page));
+  if (!chunks.length) return '';
+  const reply = await complete([{ role: 'system', content: KNOWLEDGE_PROMPT }, { role: 'user', content: framedDocument(report, doc, chunks) }]);
+  return reply.slice(0, 2000);
 }
 
 /** Runs `task` over `items`, at most `limit` at a time. */

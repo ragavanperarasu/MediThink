@@ -40,6 +40,9 @@ export const env = {
   TTS_VOICE: process.env.TTS_VOICE || 'nova',
   // Speech to text (OpenAI). STT_MODEL=off uses only the browser's own listening.
   STT_MODEL: process.env.STT_MODEL || 'gpt-transcribe',
+  // Voice conversation in the Assistant (OpenAI GPT-Live, speech to speech over WebRTC).
+  LIVE_MODEL: (process.env.LIVE_MODEL || 'gpt-live-1.1').trim(),
+  LIVE_VOICE: (process.env.LIVE_VOICE || 'marin').trim(),
   STORAGE_DIR: path.resolve(SERVER_ROOT, process.env.STORAGE_DIR || './uploads'),
   MAX_UPLOAD_BYTES: int(process.env.MAX_UPLOAD_MB, 40) * 1024 * 1024,
   TIMEZONE: process.env.TIMEZONE || 'Asia/Kolkata',

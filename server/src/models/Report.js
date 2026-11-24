@@ -78,6 +78,8 @@ const DocumentSchema = new Schema(
     status: { type: String, enum: ['analysing', 'ready', 'failed'], default: 'analysing' },
     error: { type: String, default: '' },
     summary: { type: String, default: '' },
+    // A short fact sheet for the daily check-in (prompts.js KNOWLEDGE_PROMPT).
+    knowledge: { type: String, default: '' },
     values: { type: [ValueSchema], default: [] },
     valueCount: { type: Number, default: 0 },
     flaggedCount: { type: Number, default: 0 },

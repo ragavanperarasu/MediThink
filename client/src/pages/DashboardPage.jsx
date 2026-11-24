@@ -9,6 +9,7 @@ import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import * as api from '../api';
 import { useAuth } from '../auth/AuthContext';
+import DailyCheckIn from '../components/DailyCheckIn';
 import HealthCard from '../components/HealthCard';
 import { ProfileAvatar, ProfileSwitcherMenu } from '../components/profiles';
 import { Card, EmptyState, IconTile, PageBody } from '../components/ui';
@@ -18,51 +19,52 @@ import { APP_LAYOUT } from '../lib/layout';
 
 export default function DashboardPage() {
   usePageTitle('Dashboard');
-  const [stats, setStats] = useState(null);
-  const [error, setError] = useState('');
-  const [health, setHealth] = useState({ loading: true, data: null });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    // Built on the server the first time after reports change, which takes a
-    // few seconds — so it loads on its own, without holding up the page.
-    const loadHealth = () =>
-      api.fetchHealthCard(controller.signal)
-        .then((data) => setHealth({ loading: false, data }))
-        .catch((err) => {
-          if (err.name !== 'AbortError') setHealth({ loading: false, data: null });
-        });
-    loadHealth();
-    let wasAnalysing = false;
-    const load = () =>
-      api.fetchStats(controller.signal)
-        .then((s) => {
-          setStats(s);
-          return s;
-        })
-        .catch((err) => {
-          if (err.name !== 'AbortError') setError(err.message);
-          return null;
-        });
-
-    // Keep the numbers moving while a report is still being read.
-    let timer;
-    const poll = async () => {
-      const s = await load();
-      const analysing = s?.totals.analysing > 0;
-      // A report just finished: its findings belong on the health card.
-      if (wasAnalysing && !analysing && !controller.signal.aborted) loadHealth();
-      wasAnalysing = analysing;
-      if (analysing && !controller.signal.aborted) timer = setTimeout(poll, 4000);
-    };
-    poll();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, []);
-
-  const totals = stats?.totals;
+  // Commented out with the health snapshot below; uncomment both to bring it back.
+  // const [stats, setStats] = useState(null);
+  // const [error, setError] = useState('');
+  // const [health, setHealth] = useState({ loading: true, data: null });
+  //
+  // useEffect(() => {
+  //   const controller = new AbortController();
+  //   // Built on the server the first time after reports change, which takes a
+  //   // few seconds — so it loads on its own, without holding up the page.
+  //   const loadHealth = () =>
+  //     api.fetchHealthCard(controller.signal)
+  //       .then((data) => setHealth({ loading: false, data }))
+  //       .catch((err) => {
+  //         if (err.name !== 'AbortError') setHealth({ loading: false, data: null });
+  //       });
+  //   loadHealth();
+  //   let wasAnalysing = false;
+  //   const load = () =>
+  //     api.fetchStats(controller.signal)
+  //       .then((s) => {
+  //         setStats(s);
+  //         return s;
+  //       })
+  //       .catch((err) => {
+  //         if (err.name !== 'AbortError') setError(err.message);
+  //         return null;
+  //       });
+  //
+  //   // Keep the numbers moving while a report is still being read.
+  //   let timer;
+  //   const poll = async () => {
+  //     const s = await load();
+  //     const analysing = s?.totals.analysing > 0;
+  //     // A report just finished: its findings belong on the health card.
+  //     if (wasAnalysing && !analysing && !controller.signal.aborted) loadHealth();
+  //     wasAnalysing = analysing;
+  //     if (analysing && !controller.signal.aborted) timer = setTimeout(poll, 4000);
+  //   };
+  //   poll();
+  //   return () => {
+  //     controller.abort();
+  //     clearTimeout(timer);
+  //   };
+  // }, []);
+  //
+  // const totals = stats?.totals;
 
   return (
     <PageBody>
@@ -73,7 +75,6 @@ export default function DashboardPage() {
       >
         <Box sx={{ minWidth: 0, width: { xs: '100%', sm: 'auto' } }}>
           <ProfileGreeting />
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.25 }}>Here is what MediThink has read so far.</Typography>
         </Box>
         {/* Phones have the Upload tab in the bottom bar. */}
         <Button component={RouterLink} to="/reports/new" variant="contained" startIcon={<AddRoundedIcon />} sx={{ flexShrink: 0, [APP_LAYOUT]: { display: 'none' } }}>
@@ -81,11 +82,14 @@ export default function DashboardPage() {
         </Button>
       </Stack>
 
-      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
+      {/* {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>} */}
 
+      <DailyCheckIn />
+
+      {/* Commented out for now: health snapshot, "No reports yet" and "How MediThink works".
       <HealthCard data={health.data} loading={health.loading} />
 
-      {/* Nothing uploaded yet: the one thing to do next. */}
+      {/ * Nothing uploaded yet: the one thing to do next. * /}
       {totals?.reports === 0 && (
         <Card>
           <EmptyState
@@ -102,6 +106,7 @@ export default function DashboardPage() {
       )}
 
       <Box sx={{ display: { xs: 'none', sm: 'block' } }}><HowItWorks /></Box>
+      */}
     </PageBody>
   );
 }
@@ -125,13 +130,13 @@ function ProfileGreeting() {
           width: { xs: '100%', sm: 400 },
           gap: 1.75, justifyContent: 'flex-start', textAlign: 'left',
           px: 1.75, py: 1.5,
-          bgcolor: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px',
-          '&:hover': { borderColor: '#cbd5e1' },
+          bgcolor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px',
+          '&:hover': { borderColor: '#2563eb' },
         }}
       >
         <ProfileAvatar profile={profile} size={44} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.3 }}>{greeting()}</Typography>
+          <Typography variant="caption" sx={{ color: '#1d4ed8', fontWeight: 600, fontSize: 13, display: 'block', lineHeight: 1.3 }}>{greeting()}</Typography>
           {/* First name only — the full name is on the Profile page. */}
           <Typography component="h1" sx={{ fontWeight: 650, fontSize: 17, lineHeight: 1.35 }} noWrap>{profile.name.trim().split(/\s+/)[0]}</Typography>
         </Box>
@@ -140,7 +145,7 @@ function ProfileGreeting() {
           sx={{
             width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
             display: 'grid', placeItems: 'center',
-            bgcolor: 'rgba(47,124,247,0.1)', color: 'primary.main',
+            bgcolor: '#2563eb', color: '#fff',
           }}
         >
           <SwapHorizRoundedIcon sx={{ fontSize: 20 }} />

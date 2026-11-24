@@ -11,6 +11,7 @@ import authRouter from './routes/auth.js';
 import reportsRouter from './routes/reports.js';
 import profilesRouter from './routes/profiles.js';
 import askRouter from './routes/ask.js';
+import checkinsRouter from './routes/checkins.js';
 import ttsRouter from './routes/tts.js';
 import sttRouter from './routes/stt.js';
 import { HttpError } from './lib/http.js';
@@ -90,6 +91,7 @@ export function createApp() {
   // Reports are always those of the profile in use.
   app.use('/api/reports', requireAuth, requireProfile, reportsRouter);
   app.use('/api/ask', requireAuth, requireProfile, askRouter);
+  app.use('/api/checkins', requireAuth, requireProfile, checkinsRouter);
   app.use('/api/tts', requireAuth, ttsRouter);
   app.use('/api/stt', requireAuth, sttRouter);
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));

@@ -2,8 +2,8 @@ import mongoose from 'mongoose';
 import Report from '../models/Report.js';
 import { documentForModel } from './ade.js';
 import { HttpError } from './http.js';
-import { languageInstruction } from './languages.js';
-import { MULTI_QA_PROMPT, QA_PROMPT } from './prompts.js';
+import { LANGUAGES, languageInstruction, languageOf } from './languages.js';
+import { LIVE_PROMPT, MULTI_QA_PROMPT, QA_PROMPT } from './prompts.js';
 import { REPORT_TYPE_CONTEXT, REPORT_TYPE_LABEL } from './reportTypes.js';
 
 /*
@@ -130,7 +130,7 @@ export function threadPayload(resolved, messages) {
 const withoutBlockCitations = (text) => String(text ?? '').replace(/\s*\[(?:C\d{1,5}\s*[,;]?\s*)+\]/g, '');
 
 /** Several reports as the model is handed them: summary and results, each under its id. */
-function reportsForModel(sources) {
+function reportsForModel(sources, max = MAX_MULTI_CHARS) {
   let out = '';
   for (const { ref, upload, doc } of sources) {
     const heading = [doc.title || upload.title, REPORT_TYPE_LABEL[doc.category] ?? 'Report', doc.date || 'no date printed'].join(' · ');
@@ -141,7 +141,7 @@ function reportsForModel(sources) {
       return `- ${where}${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}${range}${flag}`;
     });
     const block = `=== ${ref}: ${heading} ===\nSummary:\n${withoutBlockCitations(doc.summary)}\n${results.length ? `\nResults:\n${results.join('\n')}\n` : ''}\n`;
-    if (out.length + block.length > MAX_MULTI_CHARS) {
+    if (out.length + block.length > max) {
       out += '[Older reports were left out to fit.]\n';
       break;
     }
@@ -151,11 +151,11 @@ function reportsForModel(sources) {
 }
 
 /** The results read from one report, by the names a chart must use. */
-function resultsList(doc) {
+function resultsList(doc, heading = 'Results read from this report (for charts, use these names)') {
   const values = doc.values ?? [];
   if (!values.length) return '';
   const lines = values.map((v) => `- ${v.section ? `${v.section} › ` : ''}${v.name}: ${v.value}${v.unit ? ` ${v.unit}` : ''}${v.range ? ` (range ${v.range})` : ''}`);
-  return `\n\nResults read from this report (for charts, use these names):\n${lines.join('\n')}`;
+  return `\n\n${heading}:\n${lines.join('\n')}`;
 }
 
 /**
@@ -186,4 +186,31 @@ export function askMessages(resolved, messages, question, language = 'en', { voi
     ? [{ role: 'system', content: 'This answer will be spoken aloud in a voice conversation. Reply in two to four short, natural spoken sentences: no tables, charts, headings, bullet lists or other Markdown. Still put the citation tag after each figure. If the question needs more detail, give the key point and say the full answer is in the chat.' }]
     : [];
   return [...context, ...history, ...spoken, { role: 'system', content: languageInstruction(language) }, { role: 'user', content: question }];
+}
+
+/*
+ * GPT-Live voice. Its instructions hold 16,384 tokens in all, so the reports
+ * are cut to MAX_LIVE_CHARS (about 10,000 tokens) — the newest first.
+ */
+const MAX_LIVE_CHARS = 40_000;
+
+export const spokenLanguage = (code) => {
+  const lang = LANGUAGES[languageOf(code)];
+  if (code === 'en' || !LANGUAGES[code]) return 'Speak English.';
+  return `Speak ${lang.name} throughout, even when they speak English or another language. Use simple, everyday ${lang.name}. Say test names as the report prints them.`;
+};
+
+/** The whole instructions for a GPT-Live session within a scope. */
+export function liveInstructions(resolved, language = 'en') {
+  let context;
+  if (resolved.kind === 'doc') {
+    const { report, doc, chunks } = resolved;
+    const kind = REPORT_TYPE_CONTEXT[doc.category] ?? REPORT_TYPE_CONTEXT.other;
+    const text = (chunks.length ? chunks.map((c) => c.text).join('\n\n') : report.markdown || '').slice(0, MAX_LIVE_CHARS);
+    context = `${kind}\n\nThe report (${doc.title || REPORT_TYPE_LABEL[doc.category] || report.title}${doc.date ? `, ${doc.date}` : ''}):\n---\n${text}\n---${resultsList(doc, 'Results read from this report')}`;
+  } else {
+    if (!resolved.sources.length) throw new HttpError(404, 'There are no reports to talk about here yet.');
+    context = `Their reports (${resolved.label}), newest first:\n\n${reportsForModel(resolved.sources, MAX_LIVE_CHARS)}`;
+  }
+  return `${LIVE_PROMPT}\n\n${spokenLanguage(language)}\n\n${context}`;
 }
