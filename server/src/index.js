@@ -3,9 +3,12 @@ import { env } from './env.js';
 import { connectDb } from './db.js';
 import { migrateProfiles, seedAdmin } from './auth/seed.js';
 import { createApp } from './app.js';
+import { startDiscordLogs } from './lib/discord.js';
 import Report from './models/Report.js';
 
 async function main() {
+  // First, so every log line from here on is also copied to Discord.
+  startDiscordLogs();
   await fs.mkdir(env.STORAGE_DIR, { recursive: true });
   await connectDb();
   await seedAdmin();

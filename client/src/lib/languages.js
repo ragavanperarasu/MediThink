@@ -31,11 +31,15 @@ export const STATUS_WORDS = new Map(
  */
 const key = (profileId) => `medithink.answerLanguage.${profileId}`;
 
+/** What a profile starts in until another language is chosen. */
+export const DEFAULT_LANGUAGE = 'ta';
+
 export function savedLanguage(profileId) {
   try {
-    return languageByCode(window.localStorage.getItem(key(profileId))).code;
+    const saved = window.localStorage.getItem(key(profileId));
+    return saved ? languageByCode(saved).code : DEFAULT_LANGUAGE;
   } catch {
-    return 'en';
+    return DEFAULT_LANGUAGE;
   }
 }
 

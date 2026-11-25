@@ -12,6 +12,7 @@ import reportsRouter from './routes/reports.js';
 import profilesRouter from './routes/profiles.js';
 import askRouter from './routes/ask.js';
 import checkinsRouter from './routes/checkins.js';
+import { requestLog } from './lib/discord.js';
 import ttsRouter from './routes/tts.js';
 import sttRouter from './routes/stt.js';
 import { HttpError } from './lib/http.js';
@@ -61,6 +62,8 @@ export function createApp() {
       return next();
     });
   }
+  // Every API request, copied to Discord (lib/discord.js) when it is set up.
+  app.use(requestLog);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 

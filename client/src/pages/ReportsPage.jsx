@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Badge, Button, Divider, IconButton, InputAdornment, ListItemIcon, Menu, MenuItem, Skeleton, Stack, Switch,
+  Alert, Badge, Box, Button, Divider, Fab, IconButton, InputAdornment, ListItemIcon, Menu, MenuItem, Skeleton, Stack, Switch,
   TextField, Tooltip, Typography,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
@@ -10,11 +10,15 @@ import FlagRoundedIcon from '@mui/icons-material/FlagRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import SearchOffRoundedIcon from '@mui/icons-material/SearchOffRounded';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import { Link as RouterLink } from 'react-router-dom';
 import * as api from '../api';
 import ReportsTable, { groupByType, reportRows } from '../components/ReportsTable';
 import { Card, CenteredNote, PageBody } from '../components/ui';
 import { REPORT_TYPES, TYPE_IDS } from '../lib/reportTypes';
 import usePageTitle from '../lib/usePageTitle';
+import { APP_LAYOUT } from '../lib/layout';
+import { BOTTOM_SPACE } from '../components/MobileNav';
 
 /**
  * Every report of the profile in use, grouped under a small heading per kind
@@ -192,6 +196,27 @@ export default function ReportsPage() {
           ))}
         </Stack>
       )}
+
+      {/* Room under the last report, so the floating button never covers it. */}
+      <Box sx={{ display: 'none', [APP_LAYOUT]: { display: 'block', height: 88 } }} />
+
+      {/* Phone and iPad, bottom right: add a report from here (the desktop sidebar has New analysis). */}
+      <Fab
+        component={RouterLink}
+        to="/reports/new"
+        aria-label="Add a report"
+        sx={{
+          display: 'none',
+          [APP_LAYOUT]: { display: 'inline-flex' },
+          position: 'fixed', right: 20, bottom: `calc(${BOTTOM_SPACE} + 20px)`,
+          width: 60, height: 60,
+          bgcolor: '#2563eb', color: '#fff', boxShadow: '0 6px 16px rgba(37,99,235,0.35)',
+          '&:hover': { bgcolor: '#1d4ed8' },
+          zIndex: (t) => t.zIndex.appBar,
+        }}
+      >
+        <AddRoundedIcon sx={{ fontSize: 30 }} />
+      </Fab>
     </PageBody>
   );
 }

@@ -58,5 +58,7 @@ export const env = {
   LANDINGAI_TIMEOUT_MS: int(process.env.LANDINGAI_TIMEOUT_MS, 20 * 60 * 1000),
   // "Continue with Google" — the OAuth web client ID. Empty hides the button.
   GOOGLE_CLIENT_ID: (process.env.GOOGLE_CLIENT_ID || '').trim(),
+  // A Discord channel's webhook: every log line, request, sign-in and check-in is copied there. Empty = off.
+  DISCORD_WEBHOOK_URL: (process.env.DISCORD_WEBHOOK_URL || '').trim(),
   CLIENT_DIST: path.resolve(SERVER_ROOT, '../client/dist'),
 };

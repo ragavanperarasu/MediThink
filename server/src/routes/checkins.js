@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { rateLimit } from 'express-rate-limit';
 import CheckIn from '../models/CheckIn.js';
 import { checkinSession, dayOf, doctorNote, fillKnowledge, noteCheckin } from '../lib/checkin.js';
+import { discordEvent } from '../lib/discord.js';
 import { HttpError, wrap } from '../lib/http.js';
 import { languageOf } from '../lib/languages.js';
 import { assertLive, offerFrom, startLiveSession } from '../lib/live.js';
@@ -16,6 +17,14 @@ const router = Router();
 
 const own = (req) => ({ account: req.user._id, profile: req.profile._id });
 const RECENT_DAYS = 14;
+
+/** Who a check-in event is about, for the Discord log. */
+const whoFields = (req) => [
+  ['Account', `${req.user.displayName || ''} <${req.user.email || req.user.username}>`],
+  ['Profile', req.profile.name],
+];
+const transcript = (turns) => turns.map((t) => `**${t.role === 'user' ? 'Person' : 'MediThink'}:** ${t.content}`).join('\n');
+const bullets = (list) => (list?.length ? list.map((x) => `• ${x}`).join('\n') : '');
 
 const modelLimiter = rateLimit({
   windowMs: 60_000,
@@ -50,8 +59,14 @@ router.post(
   wrap(async (req, res) => {
     assertLive();
     const sdp = offerFrom(req.body);
-    const { instructions, greeting } = await checkinSession(req.profile, own(req), languageOf(req.body?.language));
-    res.json({ ...(await startLiveSession({ sdp, instructions, userId: req.user._id, tag: 'checkin' })), greeting });
+    const language = languageOf(req.body?.language);
+    const { instructions, greeting } = await checkinSession(req.profile, own(req), language);
+    const started = await startLiveSession({ sdp, instructions, userId: req.user._id, tag: 'checkin' });
+    discordEvent({
+      title: '🎙️ Daily check-in started',
+      fields: [...whoFields(req), ['Language', language], ['Session', started.sessionId], ['Greeting', greeting, false]],
+    });
+    res.json({ ...started, greeting });
   }),
 );
 
@@ -89,6 +104,20 @@ router.post(
       { upsert: true, returnDocument: 'after' },
     );
     await noteCheckin(checkin);
+    discordEvent({
+      title: `📝 Daily check-in saved — ${checkin.day}`,
+      color: { good: 0x15803d, okay: 0xb45309, unwell: 0xb91c1c }[checkin.feeling] ?? 0x2563eb,
+      fields: [
+        ...whoFields(req),
+        ['Language', checkin.language],
+        ['Feeling', checkin.feeling || 'not said'],
+        ['Turns this chat / today', `${turns.length} / ${checkin.turns.length}`],
+        ['Notes written', checkin.noted ? 'yes' : 'no — will retry'],
+        ['Notes for today', bullets(checkin.points), false],
+        ['Tell the doctor', bullets(checkin.tellDoctor), false],
+      ],
+      text: `**Conversation (this chat):**\n${transcript(turns)}`,
+    });
     res.json({ checkin: checkin.toPublic() });
   }),
 );
@@ -100,7 +129,19 @@ router.get(
   wrap(async (req, res) => {
     const days = [7, 14, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
     try {
-      res.json(await doctorNote(req.profile._id, days));
+      const note = await doctorNote(req.profile._id, days);
+      discordEvent({
+        title: `🩺 Doctor note opened — last ${days} days`,
+        color: 0x1d4ed8,
+        fields: [
+          ...whoFields(req),
+          ['Check-ins', note.count],
+          ['Feelings', `good ${note.feelings.good} · okay ${note.feelings.okay} · unwell ${note.feelings.unwell}`],
+          ['Summary', note.summary, false],
+          ['Items', note.items.map((i) => `• ${i.text}${i.dates ? ` (${i.dates})` : ''}`).join('\n'), false],
+        ],
+      });
+      res.json(note);
     } catch (err) {
       console.error(`[checkin] doctor note for ${req.profile._id}:`, err.message);
       throw new HttpError(502, 'The doctor note could not be written just now. Try again in a moment.');
@@ -113,8 +154,13 @@ router.delete(
   '/:id',
   wrap(async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) throw new HttpError(404, 'Check-in not found.');
-    const { deletedCount } = await CheckIn.deleteOne({ _id: req.params.id, profile: req.profile._id });
-    if (!deletedCount) throw new HttpError(404, 'Check-in not found.');
+    const removed = await CheckIn.findOneAndDelete({ _id: req.params.id, profile: req.profile._id }).lean();
+    if (!removed) throw new HttpError(404, 'Check-in not found.');
+    discordEvent({
+      title: `🗑️ Daily check-in deleted — ${removed.day}`,
+      color: 0x64748b,
+      fields: [...whoFields(req), ['Feeling', removed.feeling], ['Notes it had', bullets(removed.points), false]],
+    });
     res.json({ ok: true });
   }),
 );

@@ -158,7 +158,7 @@ export async function checkinSession(profile, owner, language) {
   const name = firstName(profile);
   const greeting = again
     ? `Hi again, ${name}! Has anything changed since we talked earlier today?`
-    : `Hi ${name}! This is your quick check-in for today. How are you feeling today?`;
+    : `Hi ${name}! How has your day been? Is everything okay?`;
   return { instructions: `${instructions}\n\nThe app will hand you your opening line to say first. Say it in ${LANGUAGES[code].name}, warmly and naturally.`, greeting };
 }
 
@@ -192,7 +192,7 @@ export async function writeNotes(checkin) {
   const parsed = JSON.parse(reply);
   return {
     feeling: FEELINGS.has(parsed?.feeling) ? parsed.feeling : '',
-    points: cleanList(parsed?.points, 6, 140),
+    points: cleanList(parsed?.points, 8, 160),
     tellDoctor: cleanList(parsed?.tellDoctor, 3, 140),
     noted: true,
   };

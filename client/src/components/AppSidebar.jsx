@@ -45,7 +45,8 @@ const RAIL_PAPER = {
 const PRIMARY = [
   { label: 'Dashboard', to: '/dashboard', icon: SpaceDashboardOutlinedIcon, match: (p) => p === '/dashboard' },
   { label: 'Reports', to: '/reports', icon: MedicalReportOutlinedIcon, match: (p) => p.startsWith('/reports') && p !== '/reports/new' },
-  { label: 'Assistant', to: '/ask', icon: SmsOutlinedIcon, match: (p) => p.startsWith('/ask') },
+  // Assistant tab commented out for now.
+  // { label: 'Assistant', to: '/ask', icon: SmsOutlinedIcon, match: (p) => p.startsWith('/ask') },
   { label: 'New analysis', to: '/reports/new', icon: NoteAddOutlinedIcon, match: (p) => p === '/reports/new' },
 ];
 

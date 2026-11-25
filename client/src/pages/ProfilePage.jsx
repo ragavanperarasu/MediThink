@@ -14,16 +14,13 @@ import usePageTitle from '../lib/usePageTitle';
 import { fonts } from '../theme';
 
 /*
- * One solid accent per section, each readable as white text on it and as
- * text on its own light tint (WCAG AA): blue for the person in use, teal for
- * reports, violet for profiles, amber for the account, red for signing out.
+ * One accent colour, kept for what matters: the person in use, and what can
+ * be tapped. Everything else stays white and grey; red only for signing out.
  */
 const C = {
   blue: { main: '#2563eb', dark: '#1d4ed8', tint: '#eff6ff', line: '#bfdbfe' },
-  teal: { main: '#0f766e', tint: '#f0fdfa', line: '#99f6e4' },
-  violet: { main: '#6d28d9', tint: '#f5f3ff', line: '#ddd6fe' },
-  amber: { main: '#b45309', tint: '#fffbeb', line: '#fde68a' },
-  red: { main: '#b91c1c', tint: '#fef2f2', line: '#fecaca' },
+  plain: { main: '#1d4ed8', tint: '#fff', line: '#e2e8f0' },
+  red: { main: '#b91c1c', tint: '#fff', line: '#fecaca' },
 };
 
 /** A section heading in its section's colour. */
@@ -69,7 +66,6 @@ export default function ProfilePage() {
   };
 
   if (!user || !profile) return null;
-  const mainProfile = profiles.find((p) => p.primary);
   const editingProfile = editing && editing !== 'new' ? editing : null;
   const editingCount = editingProfile ? list?.find((p) => p.id === editingProfile.id)?.reportCount ?? 0 : 0;
 
@@ -100,13 +96,13 @@ export default function ProfilePage() {
         </Card>
 
         {/* How many reports this profile holds — each report in an upload counts once. */}
-        <Card component={RouterLink} to="/reports" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.75, textDecoration: 'none', color: 'inherit', bgcolor: C.teal.tint, borderColor: C.teal.line, '&:hover': { borderColor: C.teal.main } }}>
-          <Box sx={{ width: 44, height: 44, borderRadius: '10px', flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: C.teal.main, color: '#fff' }}>
+        <Card component={RouterLink} to="/reports" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.75, textDecoration: 'none', color: 'inherit', bgcolor: C.plain.tint, borderColor: C.plain.line, '&:hover': { borderColor: C.plain.main } }}>
+          <Box sx={{ width: 44, height: 44, borderRadius: '10px', flexShrink: 0, display: 'grid', placeItems: 'center', bgcolor: C.plain.main, color: '#fff' }}>
             <DescriptionOutlinedIcon />
           </Box>
-          <Typography sx={{ flex: 1, color: C.teal.main, fontWeight: 650, fontSize: 15 }}>Total reports</Typography>
+          <Typography sx={{ flex: 1, color: C.plain.main, fontWeight: 650, fontSize: 15 }}>Total reports</Typography>
           {totals ? (
-            <Typography sx={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, lineHeight: 1, color: C.teal.main }}>
+            <Typography sx={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 28, lineHeight: 1, color: C.plain.main }}>
               {(totals.documents ?? totals.reports ?? 0).toLocaleString()}
             </Typography>
           ) : (
@@ -116,8 +112,8 @@ export default function ProfilePage() {
 
         {/* Every profile under the account */}
         <Box>
-          <SectionTitle color={C.violet.main}>Profiles</SectionTitle>
-          <Card sx={{ overflow: 'hidden', mt: 0.5, borderColor: C.violet.line }}>
+          <SectionTitle color="text.secondary">Profiles</SectionTitle>
+          <Card sx={{ overflow: 'hidden', mt: 0.5, borderColor: C.plain.line }}>
             {list === null ? (
               <Stack spacing={1} sx={{ p: 2 }}>{[0, 1].map((i) => <Skeleton key={i} variant="rounded" height={44} />)}</Stack>
             ) : (
@@ -130,10 +126,10 @@ export default function ProfilePage() {
                     sx={{
                       width: '100%', justifyContent: 'flex-start', textAlign: 'left', gap: 1.75, px: 2, py: 1.5,
                       borderBottom: '1px solid', borderColor: 'grey.100',
-                      // The one in use: a violet bar and tint.
-                      borderLeft: `4px solid ${current ? C.violet.main : 'transparent'}`,
-                      bgcolor: current ? C.violet.tint : '#fff',
-                      '&:hover': { bgcolor: C.violet.tint },
+                      // The one in use: a blue bar and tint.
+                      borderLeft: `4px solid ${current ? C.blue.main : 'transparent'}`,
+                      bgcolor: current ? C.blue.tint : '#fff',
+                      '&:hover': { bgcolor: C.blue.tint },
                     }}
                   >
                     <ProfileAvatar profile={p} size={38} />
@@ -146,9 +142,9 @@ export default function ProfilePage() {
                     <Stack sx={{ alignItems: 'flex-end', gap: 0.5, flexShrink: 0 }}>
                       {p.primary && <MainAccountChip />}
                       {current ? (
-                        <Chip label="In use" size="small" sx={{ height: 24, fontSize: 12.5, bgcolor: C.violet.main, color: '#fff', fontWeight: 650 }} />
+                        <Chip label="In use" size="small" sx={{ height: 24, fontSize: 12.5, bgcolor: C.blue.main, color: '#fff', fontWeight: 650 }} />
                       ) : (
-                        <Typography sx={{ color: C.violet.main, fontWeight: 650, fontSize: 13.5 }}>Switch</Typography>
+                        <Typography sx={{ color: C.blue.main, fontWeight: 650, fontSize: 13.5 }}>Switch</Typography>
                       )}
                     </Stack>
                   </ButtonBase>
@@ -157,9 +153,9 @@ export default function ProfilePage() {
             )}
             <ButtonBase
               onClick={() => setEditing('new')}
-              sx={{ width: '100%', justifyContent: 'flex-start', gap: 1.75, px: 2, py: 1.5, borderLeft: '4px solid transparent', color: C.violet.main, '&:hover': { bgcolor: C.violet.tint } }}
+              sx={{ width: '100%', justifyContent: 'flex-start', gap: 1.75, px: 2, py: 1.5, borderLeft: '4px solid transparent', color: C.blue.main, '&:hover': { bgcolor: C.blue.tint } }}
             >
-              <Box sx={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: C.violet.main, color: '#fff' }}>
+              <Box sx={{ width: 38, height: 38, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: C.blue.main, color: '#fff' }}>
                 <AddRoundedIcon />
               </Box>
               <Typography sx={{ fontWeight: 650, fontSize: 15 }}>Add profile</Typography>
@@ -168,30 +164,13 @@ export default function ProfilePage() {
         </Box>
 
 
-        {/* The account itself */}
-        <Box>
-          <SectionTitle color={C.amber.main}>Main account</SectionTitle>
-          <Card sx={{ p: 2, mt: 0.5, bgcolor: C.amber.tint, borderColor: C.amber.line }}>
-            <Stack direction="row" spacing={1.75} sx={{ alignItems: 'center' }}>
-              <ProfileAvatar profile={mainProfile ?? { name: user.displayName, picture: user.picture }} size={40} />
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography sx={{ fontWeight: 650, fontSize: 15 }} noWrap>{user.displayName}</Typography>
-                <Typography variant="body2" sx={{ color: '#57534e' }} noWrap>{user.email || `@${user.username}`}</Typography>
-              </Box>
-            </Stack>
-            <Typography variant="body2" sx={{ color: C.amber.main, display: 'block', mt: 1.25, fontSize: 13 }}>
-              {user.email ? 'Signed in with Google. ' : ''}Every profile above belongs to this account.
-            </Typography>
-          </Card>
-        </Box>
-
         <Button
           variant="outlined"
           color="error"
           size="large"
           startIcon={<LogoutRoundedIcon />}
           onClick={handleSignOut}
-          sx={{ borderRadius: '10px', minHeight: 48, color: C.red.main, bgcolor: C.red.tint, borderColor: C.red.line, '&:hover': { borderColor: C.red.main, bgcolor: '#fee2e2' } }}
+          sx={{ borderRadius: '10px', minHeight: 48, color: C.red.main, bgcolor: C.red.tint, borderColor: C.red.line, '&:hover': { borderColor: C.red.main, bgcolor: '#fef2f2' } }}
         >
           Sign out
         </Button>
@@ -226,7 +205,7 @@ function MainAccountChip({ onColor = false }) {
       size="small"
       sx={{
         height: 24, fontSize: 12.5, fontWeight: 650,
-        ...(onColor ? { bgcolor: '#fff', color: C.blue.dark } : { bgcolor: C.amber.main, color: '#fff' }),
+        ...(onColor ? { bgcolor: '#fff', color: C.blue.dark } : { bgcolor: '#f1f5f9', color: '#334155' }),
       }}
     />
   );

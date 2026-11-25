@@ -10,13 +10,17 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
+import TranslateRoundedIcon from '@mui/icons-material/TranslateRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import Menu from '@mui/material/Menu';
 import * as api from '../api';
 import { useAuth } from '../auth/AuthContext';
 import { APP_LAYOUT_QUERY } from '../lib/layout';
-import { languageByCode, savedLanguage } from '../lib/languages';
+import { languageByCode, saveLanguage, savedLanguage } from '../lib/languages';
 import { canLive } from '../lib/live';
 import { fonts } from '../theme';
 import { Card, IconTile } from './ui';
+import LanguageList from './LanguageList';
 import VoiceMode from './VoiceMode';
 
 /*
@@ -28,6 +32,8 @@ import VoiceMode from './VoiceMode';
 
 /** One solid brand blue for what needs attention, a light tint behind the rest. */
 const BLUE = '#2563eb';
+/** The header icon's size; the subtitle lines up with the title beside it. */
+const ICON = 40;
 const BLUE_DARK = '#1d4ed8';
 const TINT = '#eff6ff';
 
@@ -53,7 +59,6 @@ const dayKey = (date) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 };
 const fromKey = (key) => new Date(`${key}T12:00:00`);
-const weekday = (key) => fromKey(key).toLocaleDateString(undefined, { weekday: 'short' });
 const longDay = (key) => fromKey(key).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
 
 export default function DailyCheckIn() {
@@ -62,9 +67,16 @@ export default function DailyCheckIn() {
   const [error, setError] = useState('');
   const [talking, setTalking] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState('');
   const [doctorOpen, setDoctorOpen] = useState(false);
-  const language = savedLanguage(profile?.id);
+  // The same language as the Assistant's answers, chosen here or there.
+  const [language, setLanguage] = useState(() => savedLanguage(profile?.id));
+  const [languageAnchor, setLanguageAnchor] = useState(null);
+  useEffect(() => setLanguage(savedLanguage(profile?.id)), [profile?.id]);
+  const chooseLanguage = (code) => {
+    setLanguage(code);
+    saveLanguage(profile?.id, code);
+    setLanguageAnchor(null);
+  };
 
   const load = useCallback((signal) => api.fetchCheckins(signal)
     .then((d) => {
@@ -90,27 +102,18 @@ export default function DailyCheckIn() {
     api.saveCheckin(language, turns)
       .then(({ checkin }) => {
         if (checkin) setData((d) => (d ? { ...d, today: checkin } : d));
-        setSelected('');
       })
       .catch((err) => setError(`Your check-in could not be saved: ${err.message}`))
       .finally(() => setSaving(false));
   }, [language]);
 
-  // The last seven days, today last, each with its check-in if there was one.
-  const today = dayKey(new Date());
-  const days = useMemo(() => {
-    const byDay = new Map([...(data?.recent ?? []), ...(data?.today ? [data.today] : [])].map((c) => [c.day, c]));
-    return Array.from({ length: 7 }, (_, i) => {
-      const key = dayKey(new Date(Date.now() - (6 - i) * 86_400_000));
-      return { key, checkin: byDay.get(key) ?? null };
-    });
-  }, [data]);
+  // Every check-in kept, newest first: today's, then the last two weeks'.
+  const checkins = useMemo(() => [...(data?.today ? [data.today] : []), ...(data?.recent ?? [])], [data]);
 
   if (!data && !error) return <Skeleton variant="rounded" height={190} sx={{ borderRadius: '14px', mb: 2.5 }} />;
 
   const done = data?.today;
-  const shown = days.find((d) => d.key === (selected || today));
-  const hasNotes = Boolean(done?.points?.length || data?.recent?.length);
+  const hasNotes = checkins.length > 0;
   const available = canLive && data?.live !== false;
   const lang = languageByCode(language);
 
@@ -132,82 +135,62 @@ export default function DailyCheckIn() {
     <Card component="section" aria-labelledby="checkin-title" sx={{ mb: 2.5, borderRadius: '14px', overflow: 'hidden', borderColor: '#bfdbfe' }}>
       {saving && <LinearProgress aria-label="Writing your notes" />}
       {/* The title on solid blue: the one thing on this page to do every day */}
-      <Box sx={{ bgcolor: BLUE, color: '#fff', px: { xs: 2, sm: 2.5 }, pt: { xs: 2, sm: 2.5 }, pb: 1.5 }}>
-        <Stack direction="row" spacing={1.75} sx={{ alignItems: 'center' }}>
-          <IconTile icon={RecordVoiceOverOutlinedIcon} size={46} color={BLUE} bg="#fff" />
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Typography id="checkin-title" component="h2" sx={{ fontFamily: fonts.display, fontWeight: 700, fontSize: 19, lineHeight: 1.3 }}>
-              Daily check-in
-            </Typography>
-            <Typography sx={{ fontSize: 14.5, color: '#fff', opacity: 0.95, mt: 0.25 }}>
-              {saving
-                ? 'Writing your notes…'
-                : done
-                  ? 'Done for today.'
-                  : `How are you today? A short voice chat${lang.code !== 'en' ? ` in ${lang.native}` : ''}.`}
-            </Typography>
-          </Box>
-        </Stack>
-        {/* The doctor note, just under the title */}
-        {hasNotes && (
-          <Button
-            size="small"
-            startIcon={<MedicalServicesOutlinedIcon />}
-            onClick={() => setDoctorOpen(true)}
+      <Box sx={{ bgcolor: BLUE, color: '#fff', px: { xs: 2, sm: 2.5 }, py: { xs: 2, sm: 2.25 } }}>
+        {/* One line: icon, title, language — all centred on it */}
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 1.5 }}>
+          <IconTile icon={RecordVoiceOverOutlinedIcon} size={ICON} color={BLUE} bg="#fff" />
+          <Typography
+            id="checkin-title"
+            component="h2"
+            noWrap
+            sx={{ flex: 1, minWidth: 0, fontFamily: fonts.display, fontWeight: 700, fontSize: { xs: 18, sm: 19 }, lineHeight: 1.2 }}
+          >
+            Daily check-in
+          </Typography>
+          <ButtonBase
+            onClick={(event) => setLanguageAnchor(event.currentTarget)}
+            aria-label={`Language: ${lang.name}. Change`}
+            aria-haspopup="menu"
             sx={{
-              minHeight: 40, mt: 1.25, ml: { xs: 0, sm: 'calc(46px + 14px)' }, px: 1.5, fontSize: 14,
-              color: BLUE_DARK, bgcolor: '#fff', '&:hover': { bgcolor: TINT },
+              flexShrink: 0, height: 40, pl: 1.25, pr: 0.75, gap: 0.5, borderRadius: 99,
+              bgcolor: '#fff', color: BLUE_DARK, '&:hover': { bgcolor: TINT },
             }}
           >
-            For your doctor
-          </Button>
-        )}
+            <TranslateRoundedIcon sx={{ fontSize: 18 }} />
+            <Box component="span" lang={lang.code} sx={{ fontWeight: 650, fontSize: 14, lineHeight: 1 }}>{lang.native}</Box>
+            <ExpandMoreRoundedIcon sx={{ fontSize: 20 }} />
+          </ButtonBase>
+        </Stack>
+        {/* Under the title text, not under the icon */}
+        <Typography sx={{ fontSize: 14.5, lineHeight: 1.45, color: '#fff', mt: 0.75, pl: `${ICON + 12}px` }}>
+          {saving
+            ? 'Writing your notes…'
+            : done
+              ? 'Done for today.'
+              : 'How are you today? A short voice chat.'}
+        </Typography>
+        <Menu
+          anchorEl={languageAnchor}
+          open={Boolean(languageAnchor)}
+          onClose={() => setLanguageAnchor(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          slotProps={{ paper: { sx: { width: 260, maxHeight: 460, borderRadius: '10px', mt: 0.5 } } }}
+        >
+          <LanguageList value={language} onChoose={chooseLanguage} />
+        </Menu>
       </Box>
 
-      <Box sx={{ px: { xs: 2, sm: 2.5 }, pb: { xs: 2, sm: 2.5 } }}>
-
-        {!available && data && (
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
-            {canLive ? 'Voice check-in is not set up on the server yet.' : 'This browser cannot do voice chats. Try Chrome, Edge or Safari.'}
-          </Typography>
-        )}
-        {error && <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError('')}>{error}</Alert>}
-
-        {/* The week, one dot per day coloured by how they felt */}
-        <Stack direction="row" role="list" aria-label="The last seven days" sx={{ mt: 2, gap: { xs: 0.5, sm: 1 }, justifyContent: 'space-between', maxWidth: 520 }}>
-          {days.map(({ key, checkin }) => (
-            <DayDot
-              key={key}
-              day={key}
-              checkin={checkin}
-              today={key === today}
-              selected={key === (selected || today)}
-              onClick={() => setSelected(key)}
-            />
-          ))}
-        </Stack>
-
-        {/* The chosen day's notes */}
-        <Box sx={{ mt: 2 }} aria-live="polite">
-          {shown?.checkin ? (
-            <DayNotes checkin={shown.checkin} isToday={shown.key === today} onDelete={() => remove(shown.checkin)} />
-          ) : (
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              {shown?.key === today ? 'No check-in yet today.' : `No check-in on ${longDay(shown.key)}.`}
-            </Typography>
-          )}
-        </Box>
-
-        {/* The one thing to do — always about today, since that is where a chat is kept */}
-        {shown?.key === today ? (
+      {/* What to do: talk, or open the notes for the doctor */}
+      <Box sx={{ px: { xs: 2, sm: 2.5 }, py: { xs: 2, sm: 2.25 } }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
           <Button
-            fullWidth
             variant={done ? 'outlined' : 'contained'}
             startIcon={<MicRoundedIcon />}
             onClick={() => { setError(''); setTalking(true); }}
             disabled={!available || saving}
             sx={{
-              mt: 2, minHeight: 48, maxWidth: { sm: 320 }, fontSize: 15,
+              minHeight: 48, fontSize: 15, px: 3,
               ...(done
                 ? { color: BLUE_DARK, borderColor: BLUE, '&:hover': { borderColor: BLUE_DARK, bgcolor: TINT } }
                 : { bgcolor: BLUE, '&:hover': { bgcolor: BLUE_DARK } }),
@@ -215,14 +198,24 @@ export default function DailyCheckIn() {
           >
             {done ? "Update today's check-in" : 'Start check-in'}
           </Button>
-        ) : (
+          {hasNotes && (
+            <Button
+              variant="outlined"
+              startIcon={<MedicalServicesOutlinedIcon />}
+              onClick={() => setDoctorOpen(true)}
+              sx={{ minHeight: 48, fontSize: 15, px: 3, color: BLUE_DARK, borderColor: '#bfdbfe', '&:hover': { borderColor: BLUE, bgcolor: TINT } }}
+            >
+              For your doctor
+            </Button>
+          )}
+        </Stack>
+
+        {!available && data && (
           <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
-            Check-ins are saved for today only.{' '}
-            <ButtonBase onClick={() => setSelected('')} sx={{ color: BLUE_DARK, fontWeight: 650, fontSize: 'inherit', verticalAlign: 'baseline', minHeight: 32 }}>
-              Go to today
-            </ButtonBase>
+            {canLive ? 'Voice check-in is not set up on the server yet.' : 'This browser cannot do voice chats. Try Chrome, Edge or Safari.'}
           </Typography>
         )}
+        {error && <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError('')}>{error}</Alert>}
       </Box>
 
       <VoiceMode
@@ -234,47 +227,12 @@ export default function DailyCheckIn() {
         onFinish={finish}
         statusText={STATUS_TEXT}
       />
-      <DoctorNote open={doctorOpen} onClose={() => setDoctorOpen(false)} />
+      <DoctorNote open={doctorOpen} onClose={() => setDoctorOpen(false)} checkins={checkins} onDelete={remove} />
     </Card>
   );
 }
 
-function DayDot({ day, checkin, today, selected, onClick }) {
-  const feeling = checkin ? FEELING[checkin.feeling] ?? FEELING[''] : null;
-  const label = `${longDay(day)}: ${feeling ? feeling.label : 'no check-in'}`;
-  return (
-    <ButtonBase
-      role="listitem"
-      onClick={onClick}
-      aria-label={label}
-      aria-pressed={selected}
-      sx={{
-        flex: 1, minWidth: 0, minHeight: 64, py: 0.75, borderRadius: '12px',
-        flexDirection: 'column', gap: 0.5,
-        bgcolor: selected ? TINT : 'transparent',
-        outline: selected ? `2px solid ${BLUE}` : 'none',
-      }}
-    >
-      <Typography sx={{ fontSize: 12.5, fontWeight: today ? 700 : 500, color: today ? BLUE_DARK : 'text.secondary' }}>
-        {today ? 'Today' : weekday(day)}
-      </Typography>
-      <Box
-        aria-hidden
-        sx={{
-          width: 26, height: 26, borderRadius: '50%',
-          display: 'grid', placeItems: 'center',
-          bgcolor: feeling ? feeling.color : 'transparent',
-          border: feeling ? 'none' : '2px dashed #cbd5e1',
-          color: '#fff',
-        }}
-      >
-        {feeling && <CheckRoundedIcon sx={{ fontSize: 16 }} />}
-      </Box>
-    </ButtonBase>
-  );
-}
-
-function DayNotes({ checkin, isToday, onDelete }) {
+function DayNotes({ checkin, onDelete }) {
   const feeling = FEELING[checkin.feeling] ?? FEELING[''];
   const lang = languageByCode(checkin.language);
   return (
@@ -284,7 +242,7 @@ function DayNotes({ checkin, isToday, onDelete }) {
           {feeling.label}
         </Box>
         <Typography variant="body2" sx={{ color: 'text.secondary', flex: 1 }} noWrap>
-          {isToday ? 'Today' : longDay(checkin.day)}
+          {checkin.day === dayKey(new Date()) ? 'Today' : longDay(checkin.day)}
         </Typography>
         <IconButton onClick={onDelete} aria-label="Delete these notes" sx={{ width: 44, height: 44, color: 'text.secondary' }}>
           <DeleteOutlineRoundedIcon fontSize="small" />
@@ -317,7 +275,7 @@ function DayNotes({ checkin, isToday, onDelete }) {
 }
 
 /** The check-ins of the last days, gathered into a short note to show the doctor. */
-function DoctorNote({ open, onClose }) {
+function DoctorNote({ open, onClose, checkins, onDelete }) {
   const phone = useMediaQuery(APP_LAYOUT_QUERY);
   const [days, setDays] = useState(30);
   const [note, setNote] = useState(null);
@@ -333,7 +291,8 @@ function DoctorNote({ open, onClose }) {
       .then(setNote)
       .catch((err) => { if (err.name !== 'AbortError') setError(err.message); });
     return () => controller.abort();
-  }, [open, days]);
+    // A deleted day changes the summary, so it is fetched again.
+  }, [open, days, checkins.length]);
 
   const asText = () => [
     `Health notes from daily check-ins (last ${days} days)`,
@@ -408,6 +367,16 @@ function DoctorNote({ open, onClose }) {
             <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1.5 }}>
               From {note.count} daily check-in{note.count === 1 ? '' : 's'}: what you said, in short. Not a medical record.
             </Typography>
+          </Box>
+        )}
+
+        {/* Every day's own notes, below the summary */}
+        {checkins.length > 0 && (
+          <Box component="section" aria-labelledby="day-notes-title" sx={{ mt: 3.5 }}>
+            <Typography id="day-notes-title" component="h3" sx={{ fontWeight: 700, fontSize: 16, mb: 1.25 }}>Day by day</Typography>
+            <Stack spacing={1.5}>
+              {checkins.map((c) => <DayNotes key={c.id} checkin={c} onDelete={() => onDelete(c)} />)}
+            </Stack>
           </Box>
         )}
       </DialogContent>

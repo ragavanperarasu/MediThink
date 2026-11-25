@@ -78,9 +78,10 @@ export function MobileBottomNav() {
     >
       {/* On a wide iPad the tabs stay grouped in the middle rather than spread edge to edge. */}
       <Stack direction="row" sx={{ height: BOTTOM_NAV_HEIGHT, maxWidth: 640, mx: 'auto' }}>
-        <Stack direction="row" sx={{ flex: 1, bgcolor: '#fff' }}>{tab('home')}{tab('reports')}</Stack>
-        <UploadCradle />
-        <Stack direction="row" sx={{ flex: 1, bgcolor: '#fff' }}>{tab('assistant')}{tab('profile')}</Stack>
+        {/* Upload moved to a floating button on the Reports page; Assistant commented out for now. */}
+        {tab('home')}{tab('reports')}{tab('profile')}
+        {/* <UploadCradle /> */}
+        {/* {tab('assistant')} */}
       </Stack>
       <Box sx={{ height: 'env(safe-area-inset-bottom, 0px)', bgcolor: '#fff' }} />
     </Box>
@@ -124,7 +125,8 @@ function Label({ children }) {
   );
 }
 
-/** The middle of the bar: the Upload button, a plain navy circle, centred. */
+/** The middle of the bar: the Upload button, a plain navy circle, centred. Not shown now (see above). */
+// eslint-disable-next-line no-unused-vars
 function UploadCradle() {
   return (
     <Box sx={{ width: CRADLE, flexShrink: 0, position: 'relative', bgcolor: '#fff' }}>

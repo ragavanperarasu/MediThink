@@ -7,6 +7,7 @@ import { clearSession, issueSession, readProfile, readSession, setProfileCookie 
 import crypto from 'node:crypto';
 import { env } from '../env.js';
 import { verifyGoogleIdToken } from '../lib/google.js';
+import { discordEvent } from '../lib/discord.js';
 import { HttpError, wrap } from '../lib/http.js';
 
 const router = Router();
@@ -90,14 +91,30 @@ router.post(
 
     issueSession(res, user);
     req.cookies = { ...req.cookies, medithink_profile: undefined };
+    discordEvent({
+      title: created ? '🆕 New account — signed in with Google' : '🔐 Signed in with Google',
+      color: created ? 0x15803d : 0x2563eb,
+      fields: [
+        ['Name', user.displayName || google.name],
+        ['Email', user.email || google.email],
+        ['Account id', String(user._id)],
+        ['IP', req.ip],
+        ['Device', String(req.get('user-agent') ?? '').slice(0, 300), false],
+      ],
+    });
     res.status(created ? 201 : 200).json(await sessionPayload(req, res, user, profile));
   }),
 );
 
-router.post('/logout', (req, res) => {
-  clearSession(res);
-  res.json({ ok: true });
-});
+router.post(
+  '/logout',
+  wrap(async (req, res) => {
+    const user = await readSession(req).catch(() => null);
+    clearSession(res);
+    if (user) discordEvent({ title: '🚪 Signed out', color: 0x64748b, fields: [['Name', user.displayName], ['Email', user.email || user.username], ['IP', req.ip]] });
+    res.json({ ok: true });
+  }),
+);
 
 router.get(
   '/me',

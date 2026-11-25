@@ -16,6 +16,7 @@ import { BOTTOM_SPACE, TOP_SPACE } from '../components/MobileNav';
 import { CenteredNote, PageBody } from '../components/ui';
 import { plural } from '../lib/format';
 import { TYPE_IDS, typeInfo } from '../lib/reportTypes';
+import LanguageList from '../components/LanguageList';
 import usePageTitle from '../lib/usePageTitle';
 import { APP_LAYOUT, APP_LAYOUT_QUERY } from '../lib/layout';
 import { LANGUAGES, languageByCode, saveLanguage, savedLanguage } from '../lib/languages';
@@ -321,33 +322,3 @@ function LanguageButton({ language, onClick }) {
   );
 }
 
-/** Every answer language: its own script first, its English name under it. */
-function LanguageList({ value, onChoose }) {
-  return (
-    <Stack component="ul" sx={{ listStyle: 'none', m: 0, p: 0.5 }}>
-      {LANGUAGES.map((lang) => {
-        const active = lang.code === value;
-        return (
-          <Box component="li" key={lang.code}>
-            <ButtonBase
-              onClick={() => onChoose(lang.code)}
-              lang={lang.code}
-              sx={{
-                width: '100%', justifyContent: 'flex-start', gap: 1.5, textAlign: 'left',
-                px: 2, py: 1.1, borderRadius: '8px',
-                bgcolor: active ? 'rgba(47,124,247,0.08)' : 'transparent',
-                '&:hover': { bgcolor: active ? 'rgba(47,124,247,0.12)' : 'grey.50' },
-              }}
-            >
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{lang.native}</Typography>
-                {lang.code !== 'en' && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{lang.name}</Typography>}
-              </Box>
-              {active && <CheckRoundedIcon sx={{ fontSize: 18, color: 'primary.main' }} />}
-            </ButtonBase>
-          </Box>
-        );
-      })}
-    </Stack>
-  );
-}
