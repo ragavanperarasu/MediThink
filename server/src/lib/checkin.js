@@ -33,6 +33,39 @@ const longDate = (date = new Date()) =>
 const shortDay = (day) =>
   new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(`${day}T00:00:00Z`));
 
+/** Whole days from `day` ("YYYY-MM-DD") to today, in the app's time zone; null for a bad or future date. */
+function daysSince(day) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day ?? '')) return null;
+  const days = Math.round((Date.parse(`${dayOf()}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000);
+  return Number.isFinite(days) && days >= 0 ? days : null;
+}
+
+/** "today", "yesterday", "5 days ago", "3 weeks ago", "4 months ago", "2 years ago". */
+function ago(days) {
+  if (days === null) return '';
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 730) return `${Math.round(days / 30.44)} months ago`;
+  return `${Math.round(days / 365.25)} years ago`;
+}
+
+/** "4 Nov 2026" from "2026-11-04". */
+const plainDate = (day) =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${day}T00:00:00Z`));
+
+/**
+ * The heading over one report's facts: when it is from, and how long ago —
+ * so an old finding is talked about as the past, not as today.
+ */
+function reportWhen(upload, doc) {
+  const days = daysSince(doc.dateISO);
+  if (days !== null) return `[Report dated ${plainDate(doc.dateISO)} — ${ago(days)}]`;
+  const uploaded = dayOf(new Date(upload.createdAt));
+  return `[Report date not printed — uploaded ${plainDate(uploaded)}, ${ago(daysSince(uploaded))}; it may be older]`;
+}
+
 const readable = (doc) => doc && doc.status !== 'failed' && Boolean(doc.summary);
 const withoutCitations = (text) => String(text ?? '').replace(/\s*\[(?:[CD]\d{1,5}\s*[,;]?\s*)+\]/g, '');
 
@@ -105,6 +138,7 @@ async function reportFacts(owner) {
         flagged.length && `Out of range: ${flagged.join('; ')}`,
       ].filter(Boolean).join('\n');
     }
+    block = `${reportWhen(upload, doc)}\n${block}`;
     if (out.length + block.length > MAX_FACTS_CHARS) {
       out += '[Older reports were left out to fit.]\n';
       break;
@@ -144,7 +178,7 @@ async function recentNotes(profileId) {
   const today = dayOf();
   return recent
     .filter((c) => c.points?.length)
-    .map((c) => `${c.day === today ? 'Earlier today' : shortDay(c.day)}${c.feeling ? ` (felt ${c.feeling})` : ''}: ${c.points.join('; ')}`)
+    .map((c) => `${c.day === today ? 'Earlier today' : `${shortDay(c.day)} (${ago(daysSince(c.day))})`}${c.feeling ? `, felt ${c.feeling}` : ''}: ${c.points.join('; ')}`)
     .join('\n');
 }
 
