@@ -79,7 +79,11 @@ async function fill(owner) {
   return written;
 }
 
-/** Each report's fact sheet, newest first; a summary's key lines stand in until the sheet is written. */
+/**
+ * Each report's fact sheet, newest first (a summary's key lines stand in
+ * until the sheet is written) → { text, treatment }. `treatment` is whether
+ * the reports show one: a prescription, a discharge summary, or medicines.
+ */
 async function reportFacts(owner) {
   const uploads = await Report.find(owner, { title: 1, createdAt: 1, documents: 1 }).lean();
   const docs = uploads
@@ -88,6 +92,7 @@ async function reportFacts(owner) {
       (b.doc.dateISO || '').localeCompare(a.doc.dateISO || '') ||
       new Date(b.upload.createdAt) - new Date(a.upload.createdAt));
 
+  const treatment = docs.some(({ doc }) => ['prescription', 'discharge'].includes(doc.category) || /^Medicines:/m.test(doc.knowledge ?? ''));
   let out = '';
   for (const { upload, doc } of docs) {
     let block = doc.knowledge?.trim();
@@ -106,7 +111,7 @@ async function reportFacts(owner) {
     }
     out += `${block}\n\n`;
   }
-  return out.trim();
+  return { text: out.trim(), treatment };
 }
 
 /* ── the voice chat ──────────────────────────────────────────────────── */
@@ -146,7 +151,13 @@ async function recentNotes(profileId) {
 /** → { instructions, greeting } for a GPT-Live check-in session. */
 export async function checkinSession(profile, owner, language) {
   const code = languageOf(language);
-  const [facts, recent] = await Promise.all([reportFacts(owner), recentNotes(profile._id)]);
+  const [{ text: facts, treatment }, recent] = await Promise.all([reportFacts(owner), recentNotes(profile._id)]);
+  // What the reports allow it to ask about: nothing known means no condition or treatment questions.
+  const scope = !facts
+    ? 'This person has no reports in MediThink yet, so you know of no condition and no treatment. Do not ask about treatment, medicines or any condition. Only ask how they are, follow what they tell you, and note it.'
+    : treatment
+      ? 'Their reports show a treatment, so you may ask in general how it is going.'
+      : 'Their reports show no prescription or treatment, so do not ask how a treatment is going. Ask only about the topics from their reports.';
   const age = ageOf(profile.dateOfBirth);
   const person = [
     `- First name: ${firstName(profile)}`,
@@ -164,14 +175,19 @@ export async function checkinSession(profile, owner, language) {
     `About the person:\n${person}`,
     `Their recent check-ins, newest first:\n${recent || 'None yet — this is their first check-in.'}`,
     `What their reports say, newest first. This is background for you, not something to read out:\n${facts || 'No reports yet.'}`,
+    scope,
   ].join('\n\n');
 
   // Said first, as soon as the session starts (the browser sends it), so the person does not have to.
   const again = await CheckIn.exists({ profile: profile._id, day: dayOf() });
   const name = firstName(profile);
+  // The very first check-in says once what it is for, so the questions do not feel nosy.
+  const first = !again && !(await CheckIn.exists({ profile: profile._id }));
   const greeting = again
     ? `Hi again, ${name}! Has anything changed since we talked earlier today?`
-    : `Hi ${name}! How has your day been? Is everything okay?`;
+    : first
+      ? `Hi ${name}! This is your daily check-in — a quick chat each day, and I'll note how you are so you can tell your doctor later. So, how has your day been?`
+      : `Hi ${name}! How has your day been? Is everything okay?`;
   return { instructions: `${instructions}\n\nThe app will hand you your opening line to say first. Say it in ${LANGUAGES[code].name}, warmly and naturally.`, greeting };
 }
 
