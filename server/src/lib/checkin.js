@@ -3,7 +3,6 @@ import { env } from '../env.js';
 import CheckIn from '../models/CheckIn.js';
 import Report from '../models/Report.js';
 import { complete, documentKnowledge } from './analyse.js';
-import { spokenLanguage } from './ask.js';
 import { LANGUAGES, languageOf } from './languages.js';
 import { CHECKIN_NOTES_PROMPT, CHECKIN_PROMPT, DOCTOR_NOTE_PROMPT } from './prompts.js';
 import { REPORT_TYPE_LABEL } from './reportTypes.js';
@@ -112,7 +111,18 @@ async function reportFacts(owner) {
 
 /* ── the voice chat ──────────────────────────────────────────────────── */
 
-const firstName = (profile) => String(profile.name ?? '').trim().split(/\s+/)[0] || 'there';
+/**
+ * The name to greet with: the first word, without initials or dots —
+ * "Palaniappan.V" and "V. Palaniappan" are both "Palaniappan".
+ */
+export function firstName(profile) {
+  const words = String(profile.name ?? '')
+    .replace(/[.,_]+/g, ' ')
+    .split(/\s+/)
+    // An initial: one Latin letter, or one letter of another script ("வி" is 2 characters).
+    .filter((w) => w.length > (/^[\x00-\x7F]+$/.test(w) ? 1 : 2));
+  return words[0] || 'there';
+}
 
 function ageOf(dateOfBirth) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth ?? '')) return '';
@@ -147,7 +157,10 @@ export async function checkinSession(profile, owner, language) {
 
   const instructions = [
     CHECKIN_PROMPT,
-    spokenLanguage(code),
+    // Unlike the Assistant, a check-in follows how the person talks, mixing languages if they do.
+    code === 'en'
+      ? 'Speak English. If they speak another language, answer in it.'
+      : `Speak ${LANGUAGES[code].name} by default, in simple everyday ${LANGUAGES[code].name}. If they mix in English words or sentences, mix the same way, as people naturally do; if they switch fully to English, you may too.`,
     `About the person:\n${person}`,
     `Their recent check-ins, newest first:\n${recent || 'None yet — this is their first check-in.'}`,
     `What their reports say, newest first. This is background for you, not something to read out:\n${facts || 'No reports yet.'}`,
