@@ -30,6 +30,9 @@ import { canLive, startLive } from '../lib/live';
 
 export const canConverse = canLive;
 
+/** How long a side must be quiet, with the other side speaking, for its turn to be over. */
+const TURN_GAP_MS = 1500;
+
 const STATE_TEXT = {
   idle: 'Tap the circle to start',
   connecting: 'Connecting…',
@@ -58,12 +61,45 @@ export default function VoiceMode({ open, onClose, scope, label, language, onTur
   const speakingTimer = useRef(null);
   // The conversation so far, and the turn being said now.
   const turns = useRef([]);
-  const current = useRef({ role: '', text: '' });
+  /*
+   * Each side's words so far, kept apart. Both can talk at once (a "mm" while
+   * the other is mid-sentence), so a delta from one side must not cut the
+   * other side's sentence in two. A side's turn ends once it has been quiet
+   * for TURN_GAP_MS and the other side has spoken; turns are kept in the
+   * order they started.
+   */
+  const speaking = useRef({ user: null, assistant: null }); // { text, start, last, otherSpoke }
 
+  const closeTurn = (role) => {
+    const t = speaking.current[role];
+    if (t?.text.trim()) turns.current.push({ role, content: t.text.trim(), start: t.start });
+    speaking.current[role] = null;
+  };
   const flushTurn = () => {
-    const { role, text } = current.current;
-    if (role && text.trim()) turns.current.push({ role, content: text.trim() });
-    current.current = { role: '', text: '' };
+    closeTurn('user');
+    closeTurn('assistant');
+  };
+  /** Adds a delta to its side's turn; returns that turn's text so far. */
+  const addWords = (role, delta) => {
+    const now = Date.now();
+    const other = role === 'user' ? 'assistant' : 'user';
+    const theirs = speaking.current[other];
+    if (theirs) {
+      theirs.otherSpoke = true;
+      if (now - theirs.last > TURN_GAP_MS) closeTurn(other);
+    }
+    let mine = speaking.current[role];
+    if (mine && mine.otherSpoke && now - mine.last > TURN_GAP_MS) {
+      closeTurn(role);
+      mine = null;
+    }
+    if (!mine) {
+      mine = { text: '', start: now, last: now, otherSpoke: false };
+      speaking.current[role] = mine;
+    }
+    mine.text += delta;
+    mine.last = now;
+    return mine.text;
   };
 
   // Kept in refs so a parent passing new functions does not restart the session.
@@ -77,7 +113,7 @@ export default function VoiceMode({ open, onClose, scope, label, language, onTur
   /** What was said goes into the chat thread, or to `onFinish`. */
   const saveTurns = useCallback(() => {
     flushTurn();
-    const said = turns.current;
+    const said = turns.current.sort((a, b) => a.start - b.start).map(({ role, content }) => ({ role, content }));
     turns.current = [];
     if (finishRef.current) {
       finishRef.current(said);
@@ -94,21 +130,11 @@ export default function VoiceMode({ open, onClose, scope, label, language, onTur
         settle();
         break;
       case 'session.input_transcript.delta':
-        if (current.current.role !== 'user') {
-          flushTurn();
-          current.current = { role: 'user', text: '' };
-        }
-        current.current.text += event.delta ?? '';
-        setHeard(current.current.text);
+        setHeard(addWords('user', event.delta ?? ''));
         setLastRole('user');
         break;
       case 'session.output_transcript.delta':
-        if (current.current.role !== 'assistant') {
-          flushTurn();
-          current.current = { role: 'assistant', text: '' };
-        }
-        current.current.text += event.delta ?? '';
-        setReply(current.current.text);
+        setReply(addWords('assistant', event.delta ?? ''));
         setLastRole('assistant');
         // No "done speaking" event: the voice is taken to have stopped a moment after the last words.
         setState('speaking');
